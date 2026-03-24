@@ -40,7 +40,10 @@ suspend fun <T> safeClaudeCall(block: suspend () -> T): ClaudeResult<T> {
             simpleName.contains("InvalidAPIKey") ||
                 msg.contains("API_KEY_INVALID", ignoreCase = true) -> ApiErrorType.AUTH
             simpleName.contains("Throttled") ||
-                msg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) -> ApiErrorType.RATE_LIMIT
+                msg.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ||
+                msg.contains("Too Many Requests", ignoreCase = true) ||
+                msg.contains("429", ignoreCase = true) ||
+                msg.contains("quota", ignoreCase = true) -> ApiErrorType.RATE_LIMIT
             simpleName.contains("Network") -> ApiErrorType.NETWORK
             else -> ApiErrorType.UNKNOWN
         }

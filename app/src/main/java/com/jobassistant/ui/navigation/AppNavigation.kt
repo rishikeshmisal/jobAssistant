@@ -26,6 +26,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jobassistant.ui.screens.csv.CsvImportScreen
+import com.jobassistant.ui.screens.evaluate.EvaluateJobScreen
 import com.jobassistant.ui.screens.dashboard.DashboardScreen
 import com.jobassistant.ui.screens.detail.AddJobScreen
 import com.jobassistant.ui.screens.detail.JobDetailScreen
@@ -47,7 +49,9 @@ private val bottomNavItems = listOf(
 
 private val screensWithoutBottomNav = setOf(
     Screen.Onboarding.route,
-    "job_detail/{jobId}"
+    "job_detail/{jobId}",
+    Screen.CsvImport.route,
+    Screen.EvaluateJob.route
 )
 
 @Composable
@@ -122,6 +126,9 @@ fun AppNavigation(
                     },
                     onAddJobClick = {
                         navController.navigate(Screen.AddJob.route)
+                    },
+                    onEvaluateFitClick = {
+                        navController.navigate(Screen.EvaluateJob.route)
                     }
                 )
             }
@@ -138,15 +145,40 @@ fun AppNavigation(
             composable(Screen.AddJob.route) {
                 AddJobScreen(
                     onBack = { navController.popBackStack() },
-                    initialImageUri = sharedImageUri,
-                    onImageConsumed = onSharedImageConsumed
+                    onSaved = { jobId ->
+                        navController.navigate(Screen.JobDetail.createRoute(jobId)) {
+                            popUpTo(Screen.AddJob.route) { inclusive = true }
+                        }
+                    }
                 )
             }
             composable(Screen.Profile.route) {
-                ProfileScreen()
+                ProfileScreen(
+                    onNavigateToCsvImport = { navController.navigate(Screen.CsvImport.route) }
+                )
+            }
+            composable(Screen.CsvImport.route) {
+                CsvImportScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToDashboard = {
+                        navController.navigate(Screen.Dashboard.route) {
+                            popUpTo(Screen.CsvImport.route) { inclusive = true }
+                        }
+                    }
+                )
             }
             composable(Screen.Insights.route) {
                 InsightsScreen()
+            }
+            composable(Screen.EvaluateJob.route) {
+                EvaluateJobScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToJobDetail = { jobId ->
+                        navController.navigate(Screen.JobDetail.createRoute(jobId)) {
+                            popUpTo(Screen.EvaluateJob.route) { inclusive = true }
+                        }
+                    }
+                )
             }
         }
     }

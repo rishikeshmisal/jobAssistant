@@ -137,6 +137,41 @@ class SafeClaudeCallTest {
         assertEquals(null, error.httpCode)
     }
 
+    // ── New Gemini rate-limit patterns ────────────────────────────────────
+
+    @Test
+    fun `safeClaudeCall_tooManyRequestsMessage_returnsRateLimitError`() = runTest {
+        val result = safeClaudeCall<Int> {
+            throw Exception("Too Many Requests — please wait and retry")
+        }
+
+        val error = result as ClaudeResult.Error
+        assertEquals(ApiErrorType.RATE_LIMIT, error.errorType)
+        assertTrue(error.isRetryable)
+    }
+
+    @Test
+    fun `safeClaudeCall_429InMessage_returnsRateLimitError`() = runTest {
+        val result = safeClaudeCall<Int> {
+            throw Exception("HTTP 429: rate limit exceeded")
+        }
+
+        val error = result as ClaudeResult.Error
+        assertEquals(ApiErrorType.RATE_LIMIT, error.errorType)
+        assertTrue(error.isRetryable)
+    }
+
+    @Test
+    fun `safeClaudeCall_quotaInMessage_returnsRateLimitError`() = runTest {
+        val result = safeClaudeCall<Int> {
+            throw Exception("Quota exceeded for project — upgrade your plan")
+        }
+
+        val error = result as ClaudeResult.Error
+        assertEquals(ApiErrorType.RATE_LIMIT, error.errorType)
+        assertTrue(error.isRetryable)
+    }
+
     // ── ApiErrorType enum ──────────────────────────────────────────────────
 
     @Test

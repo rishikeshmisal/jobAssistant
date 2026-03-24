@@ -18,5 +18,6 @@ data class JobApplicationEntity(
     val interviewDate: Long?,
     val notes: String,
     val linkedEmailThreadIds: List<String>,
-    val lastSeenDate: Long
+    val lastSeenDate: Long,
+    val jobDescription: String = ""
 )

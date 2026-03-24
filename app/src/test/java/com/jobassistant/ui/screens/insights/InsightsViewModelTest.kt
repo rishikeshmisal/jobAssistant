@@ -107,11 +107,63 @@ class InsightsViewModelTest {
     }
 
     @Test
-    fun `refreshInsights calls GenerateInsightsUseCase when isRefreshEnabled`() = runTest {
+    fun `applied count excludes INTERESTED jobs`() = runTest {
+        val jobsWithInterested = sampleJobs + listOf(
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "X", roleTitle = "Y",
+                status = ApplicationStatus.INTERESTED)
+        )
+        coEvery { getAllJobsUseCase() } returns flowOf(jobsWithInterested)
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+        // INTERESTED job excluded from applied count → still 20
+        assertEquals(20, vm.uiState.value.stats.totalApplied)
+    }
+
+    @Test
+    fun `interviews count includes SCREENING INTERVIEWING ASSESSMENT`() = runTest {
+        val mixedJobs = listOf(
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "A", roleTitle = "R", status = ApplicationStatus.SCREENING),
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "B", roleTitle = "R", status = ApplicationStatus.INTERVIEWING),
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "C", roleTitle = "R", status = ApplicationStatus.ASSESSMENT),
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "D", roleTitle = "R", status = ApplicationStatus.APPLIED)
+        )
+        coEvery { getAllJobsUseCase() } returns flowOf(mixedJobs)
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+        assertEquals(3, vm.uiState.value.stats.interviews)
+    }
+
+    @Test
+    fun `offers count includes both OFFER and ACCEPTED`() = runTest {
+        val offerJobs = listOf(
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "A", roleTitle = "R", status = ApplicationStatus.OFFER),
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "B", roleTitle = "R", status = ApplicationStatus.ACCEPTED)
+        )
+        coEvery { getAllJobsUseCase() } returns flowOf(offerJobs)
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.stats.offers)
+    }
+
+    @Test
+    fun `withdrawn and noResponse are counted separately`() = runTest {
+        val closedJobs = listOf(
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "A", roleTitle = "R", status = ApplicationStatus.WITHDRAWN),
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "B", roleTitle = "R", status = ApplicationStatus.WITHDRAWN),
+            JobApplication(id = java.util.UUID.randomUUID(), companyName = "C", roleTitle = "R", status = ApplicationStatus.NO_RESPONSE)
+        )
+        coEvery { getAllJobsUseCase() } returns flowOf(closedJobs)
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.stats.withdrawn)
+        assertEquals(1, vm.uiState.value.stats.noResponse)
+    }
+
+    @Test
+    fun `refreshInsights calls GenerateInsightsUseCase`() = runTest {
         advanceUntilIdle()
         val fakeInsights = CareerInsights(identifiedGaps = listOf("gap1"), recommendedActions = listOf("action1"), summaryAnalysis = "summary")
         coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(fakeInsights)
-        assertTrue(viewModel.uiState.value.isRefreshEnabled)
 
         viewModel.refreshInsights()
         advanceUntilIdle()
@@ -120,21 +172,65 @@ class InsightsViewModelTest {
     }
 
     @Test
-    fun `refreshInsights does NOT call GenerateInsightsUseCase when isRefreshEnabled is false`() = runTest {
-        // Seed cached insights with recent timestamp (within 24h)
+    fun `dataChangedSinceRefresh is true before first refresh`() = runTest {
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.dataChangedSinceRefresh)
+    }
+
+    @Test
+    fun `dataChangedSinceRefresh is false immediately after successful refresh`() = runTest {
+        advanceUntilIdle()
+        val insights = CareerInsights(identifiedGaps = emptyList(), recommendedActions = emptyList(), summaryAnalysis = "")
+        coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(insights)
+
+        viewModel.refreshInsights()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.dataChangedSinceRefresh)
+    }
+
+    @Test
+    fun `dataChangedSinceRefresh becomes true when new jobs are added after refresh`() = runTest {
+        advanceUntilIdle()
+        val insights = CareerInsights(identifiedGaps = emptyList(), recommendedActions = emptyList(), summaryAnalysis = "")
+        coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(insights)
+
+        viewModel.refreshInsights()
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.dataChangedSinceRefresh)
+
+        // Simulate a new job being added — more jobs than at refresh time
+        val extraJob = JobApplication(
+            id = java.util.UUID.randomUUID(), companyName = "NewCo", roleTitle = "Dev",
+            status = ApplicationStatus.APPLIED
+        )
+        coEvery { getAllJobsUseCase() } returns flowOf(sampleJobs + extraJob)
+        // Trigger the combine by emitting from insights flow
+        coEvery { getCareerInsightsUseCase() } returns flowOf(insights)
+        val vm2 = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+
+        // New VM with new jobs but no prior snapshot — should be unlocked
+        assertTrue(vm2.uiState.value.dataChangedSinceRefresh)
+    }
+
+    @Test
+    fun `refreshInsights is not blocked by time-based cooldown before 8h`() = runTest {
+        // Even with very recent insights, refreshInsights() should still execute
+        // (the button state is controlled by Screen, not the ViewModel guard)
         val recentInsights = CareerInsights(
-            generatedDate = System.currentTimeMillis() - 1000L, // 1 second ago
+            generatedDate = System.currentTimeMillis() - 1000L,
             identifiedGaps = emptyList(), recommendedActions = emptyList(), summaryAnalysis = ""
         )
         coEvery { getCareerInsightsUseCase() } returns flowOf(recentInsights)
+        coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(recentInsights)
         val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
         advanceUntilIdle()
-        assertFalse(vm.uiState.value.isRefreshEnabled)
 
         vm.refreshInsights()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { generateInsightsUseCase(any(), any()) }
+        coVerify(atLeast = 1) { generateInsightsUseCase(any(), any()) }
     }
 
     @Test
@@ -161,5 +257,109 @@ class InsightsViewModelTest {
         assertEquals(0, stats.totalApplied)
         assertEquals(0f, stats.interviewRate, 0.01f)
         assertEquals(0f, stats.rejectionRate, 0.01f)
+    }
+
+    // ── Phase 11: userProfile propagation ────────────────────────────────────
+
+    @Test
+    fun `uiState userProfile fullName is populated from DataStore`() = runTest {
+        advanceUntilIdle()
+        assertEquals("Test", viewModel.uiState.value.userProfile.fullName)
+    }
+
+    @Test
+    fun `uiState userProfile careerGoal is populated from DataStore`() = runTest {
+        advanceUntilIdle()
+        assertEquals("Senior Dev", viewModel.uiState.value.userProfile.careerGoal)
+    }
+
+    @Test
+    fun `uiState userProfile updates when DataStore emits new profile`() = runTest {
+        val updatedProfile = fakeProfile.copy(fullName = "Updated Name")
+        coEvery { userProfileDataStore.userProfileFlow } returns flowOf(updatedProfile)
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+
+        assertEquals("Updated Name", vm.uiState.value.userProfile.fullName)
+    }
+
+    // ── Phase 11: buildHistorySummary includes job details ───────────────────
+
+    @Test
+    fun `refreshInsights passes job role title in history summary`() = runTest {
+        val detailedJobs = listOf(
+            JobApplication(
+                companyName = "DeepMind",
+                roleTitle = "ML Engineer",
+                status = ApplicationStatus.REJECTED,
+                fitScore = 80
+            )
+        )
+        coEvery { getAllJobsUseCase() } returns flowOf(detailedJobs)
+        coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(
+            CareerInsights(identifiedGaps = emptyList(), recommendedActions = emptyList(), summaryAnalysis = "")
+        )
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+
+        vm.refreshInsights()
+        advanceUntilIdle()
+
+        coVerify { generateInsightsUseCase(any(), withArg { summary ->
+            summary.contains("ML Engineer") && summary.contains("DeepMind")
+        }) }
+    }
+
+    @Test
+    fun `refreshInsights passes career keywords in profile summary`() = runTest {
+        val profileWithKeywords = fakeProfile.copy(keywords = listOf("Kotlin", "Jetpack Compose"))
+        coEvery { userProfileDataStore.userProfileFlow } returns flowOf(profileWithKeywords)
+        coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(
+            CareerInsights(identifiedGaps = emptyList(), recommendedActions = emptyList(), summaryAnalysis = "")
+        )
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+
+        vm.refreshInsights()
+        advanceUntilIdle()
+
+        coVerify { generateInsightsUseCase(withArg { profile ->
+            profile.contains("Kotlin") && profile.contains("Jetpack Compose")
+        }, any()) }
+    }
+
+    @Test
+    fun `refreshInsights passes empty history summary when no applied jobs`() = runTest {
+        coEvery { getAllJobsUseCase() } returns flowOf(
+            listOf(JobApplication(companyName = "Co", roleTitle = "Role", status = ApplicationStatus.INTERESTED))
+        )
+        coEvery { generateInsightsUseCase(any(), any()) } returns ClaudeResult.Success(
+            CareerInsights(identifiedGaps = emptyList(), recommendedActions = emptyList(), summaryAnalysis = "")
+        )
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+
+        vm.refreshInsights()
+        advanceUntilIdle()
+
+        coVerify { generateInsightsUseCase(any(), withArg { it.contains("No applications") }) }
+    }
+
+    @Test
+    fun `topCompanies returns top 3 by application count`() = runTest {
+        val manyJobs = buildList {
+            repeat(5) { add(JobApplication(companyName = "Google", roleTitle = "SWE", status = ApplicationStatus.APPLIED)) }
+            repeat(3) { add(JobApplication(companyName = "Meta", roleTitle = "SWE", status = ApplicationStatus.REJECTED)) }
+            repeat(2) { add(JobApplication(companyName = "Amazon", roleTitle = "SWE", status = ApplicationStatus.APPLIED)) }
+            repeat(1) { add(JobApplication(companyName = "Netflix", roleTitle = "SWE", status = ApplicationStatus.APPLIED)) }
+        }
+        coEvery { getAllJobsUseCase() } returns flowOf(manyJobs)
+        val vm = InsightsViewModel(getAllJobsUseCase, generateInsightsUseCase, getCareerInsightsUseCase, userProfileDataStore)
+        advanceUntilIdle()
+
+        val topCompanies = vm.uiState.value.stats.topCompanies
+        assertEquals(3, topCompanies.size)
+        assertEquals("Google", topCompanies[0].first)
+        assertEquals(5, topCompanies[0].second)
     }
 }

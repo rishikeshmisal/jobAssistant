@@ -28,7 +28,7 @@ class JobApplicationRepositoryTest {
         companyName = "Acme Corp",
         roleTitle = "Software Engineer",
         jobUrl = null,
-        status = ApplicationStatus.SAVED,
+        status = ApplicationStatus.INTERESTED,
         fitScore = null,
         location = null,
         salaryRange = null,
@@ -87,7 +87,7 @@ class JobApplicationRepositoryTest {
         assertEquals(sampleId, result?.id)
         assertEquals("Acme Corp", result?.companyName)
         assertEquals("Software Engineer", result?.roleTitle)
-        assertEquals(ApplicationStatus.SAVED, result?.status)
+        assertEquals(ApplicationStatus.INTERESTED, result?.status)
     }
 
     @Test

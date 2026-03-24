@@ -4,10 +4,12 @@ import com.jobassistant.data.remote.model.CareerInsightsResult
 import com.jobassistant.data.remote.model.CareerProfile
 import com.jobassistant.data.remote.model.EmailAction
 import com.jobassistant.data.remote.model.FitAnalysis
+import com.jobassistant.domain.model.CsvColumnMapping
 
 interface ClaudeRepository {
     suspend fun analyzeIntent(resumeText: String, userInterests: String): CareerProfile
     suspend fun evaluateFit(resumeText: String, jobDescription: String): FitAnalysis
     suspend fun parseEmail(subject: String, body: String): EmailAction
     suspend fun generateInsights(profileSummary: String, historySummary: String): CareerInsightsResult
+    suspend fun mapCsvColumns(headers: List<String>, sampleRows: List<List<String>>): CsvColumnMapping
 }

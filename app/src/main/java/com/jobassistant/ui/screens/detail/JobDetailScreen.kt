@@ -1,7 +1,11 @@
 package com.jobassistant.ui.screens.detail
 
 import android.app.DatePickerDialog
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -42,6 +47,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,36 +61,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import com.jobassistant.ui.components.FitScoreRing
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jobassistant.data.remote.model.ApiErrorType
 import com.jobassistant.data.remote.model.FitAnalysis
+import com.jobassistant.domain.model.ALL_STATUSES
 import com.jobassistant.domain.model.ApplicationStatus
+import com.jobassistant.domain.model.displayName
+import com.jobassistant.ui.components.FitScoreRing
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private val ALL_STATUSES = ApplicationStatus.values().toList()
-
-private const val EXPIRY_THRESHOLD_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
+private const val EXPIRY_THRESHOLD_MS = 30L * 24 * 60 * 60 * 1000
 
 private fun isExpired(lastSeenDate: Long, status: ApplicationStatus): Boolean =
-    status == ApplicationStatus.SAVED &&
+    status == ApplicationStatus.INTERESTED &&
         (System.currentTimeMillis() - lastSeenDate) > EXPIRY_THRESHOLD_MS
 
-private fun ApplicationStatus.displayName() = when (this) {
-    ApplicationStatus.SAVED -> "Saved"
-    ApplicationStatus.APPLIED -> "Applied"
-    ApplicationStatus.INTERVIEWING -> "Interviewing"
-    ApplicationStatus.OFFERED -> "Offered"
-    ApplicationStatus.REJECTED -> "Rejected"
-}
+private val JOB_DESCRIPTION_TABS = listOf("Paste Text", "Paste URL", "Screenshot")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,9 +101,18 @@ fun JobDetailScreen(
     val appliedDate by viewModel.appliedDate.collectAsStateWithLifecycle()
     val interviewDate by viewModel.interviewDate.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val jobDescription by viewModel.jobDescription.collectAsStateWithLifecycle()
+    val ocrText by viewModel.ocrText.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.analyzeFromScreenshot(it, context) }
+    }
 
     LaunchedEffect(uiState.saved) {
         if (uiState.saved) {
@@ -109,10 +121,8 @@ fun JobDetailScreen(
         }
     }
 
-    // Generic errors (non-API-typed) still surface as a snackbar
     LaunchedEffect(uiState.error) {
-        val isTyped = uiState.errorType != null &&
-            uiState.errorType != ApiErrorType.UNKNOWN
+        val isTyped = uiState.errorType != null && uiState.errorType != ApiErrorType.UNKNOWN
         if (!isTyped) {
             uiState.error?.let {
                 snackbarHostState.showSnackbar(it)
@@ -142,24 +152,6 @@ fun JobDetailScreen(
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
-                },
-                floatingActionButton = {
-                    val retryAt = uiState.retryAvailableAt
-                    val isRateLimited = retryAt != null &&
-                        System.currentTimeMillis() < retryAt
-                    Button(
-                        onClick = { viewModel.reAnalyzeFit() },
-                        enabled = !uiState.isAnalyzing && !isRateLimited
-                    ) {
-                        if (uiState.isAnalyzing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text(if (isRateLimited) "Service busy…" else "Re-analyze Fit")
-                    }
                 }
             )
         },
@@ -167,16 +159,12 @@ fun JobDetailScreen(
     ) { innerPadding ->
         when {
             uiState.isLoading -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) { CircularProgressIndicator() }
 
             uiState.job == null -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) { Text("Job not found") }
 
@@ -190,7 +178,7 @@ fun JobDetailScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Header
+                    // ── Header ──────────────────────────────────────────────
                     Column {
                         Text(
                             text = job.companyName,
@@ -202,7 +190,6 @@ fun JobDetailScreen(
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        // 9.3 — expiry warning for stale SAVED postings
                         if (isExpired(job.lastSeenDate, job.status)) {
                             Spacer(Modifier.height(4.dp))
                             SuggestionChip(
@@ -216,31 +203,70 @@ fun JobDetailScreen(
                         }
                     }
 
-                    // Status dropdown
+                    // ── Status dropdown ─────────────────────────────────────
                     StatusDropdown(
                         currentStatus = status,
                         onStatusSelected = { viewModel.status.value = it }
                     )
 
-                    // Fit Score card
-                    val displayAnalysis = uiState.fitAnalysis
-                    val displayScore = displayAnalysis?.score ?: job.fitScore
-                    FitScoreCard(
-                        score = displayScore,
-                        fitAnalysis = displayAnalysis,
+                    // ── Fit Score card ──────────────────────────────────────
+                    val displayScore = uiState.fitAnalysis?.score ?: job.fitScore
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            FitScoreRing(score = displayScore, size = 96.dp, strokeWidth = 10.dp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Fit Score", style = MaterialTheme.typography.labelMedium)
+
+                            val inlineError = when (uiState.errorType) {
+                                ApiErrorType.AUTH -> "API key invalid — check your key in Settings"
+                                ApiErrorType.RATE_LIMIT -> "Service busy — please try again in a minute"
+                                else -> null
+                            }
+                            if (inlineError != null) {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    text = inlineError,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+
+                    // ── Pros / Cons / Missing skills ────────────────────────
+                    val analysis = uiState.fitAnalysis
+                    if (analysis != null) {
+                        ExpandableSection("Pros (${analysis.pros.size})", analysis.pros)
+                        ExpandableSection("Cons (${analysis.cons.size})", analysis.cons)
+                        ExpandableSection("Missing Skills (${analysis.missingSkills.size})", analysis.missingSkills)
+                    }
+
+                    // ── Job Description evaluation section ──────────────────
+                    JobDescriptionSection(
+                        jobDescription = jobDescription,
+                        ocrText = ocrText,
                         isAnalyzing = uiState.isAnalyzing,
-                        errorType = uiState.errorType,
                         retryAvailableAt = uiState.retryAvailableAt,
-                        onReAnalyze = { viewModel.reAnalyzeFit() },
-                        onDismissError = { viewModel.clearError() }
+                        onJobDescriptionChange = { viewModel.jobDescription.value = it },
+                        onAnalyzePaste = { viewModel.analyzeFromPaste(jobDescription) },
+                        onAnalyzeUrl = { viewModel.analyzeFromUrl(jobDescription) },
+                        onPickScreenshot = { imagePickerLauncher.launch("image/*") },
+                        onAnalyzeOcr = { viewModel.analyzeFromPaste(ocrText) }
                     )
 
-
-                    // Editable fields
+                    // ── Editable fields ─────────────────────────────────────
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { viewModel.notes.value = it },
-                        label = { Text("Notes / Job Description") },
+                        label = { Text("Notes") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 6
@@ -260,7 +286,6 @@ fun JobDetailScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // Date pickers
                     DatePickerField(
                         label = "Applied Date",
                         dateMs = appliedDate,
@@ -273,12 +298,10 @@ fun JobDetailScreen(
                         onDateSelected = { viewModel.interviewDate.value = it }
                     )
 
-                    // Linked emails
                     if (job.linkedEmailThreadIds.isNotEmpty()) {
                         LinkedEmailsSection(threadIds = job.linkedEmailThreadIds)
                     }
 
-                    // Save button
                     Button(
                         onClick = { viewModel.saveChanges() },
                         modifier = Modifier.fillMaxWidth(),
@@ -302,134 +325,140 @@ fun JobDetailScreen(
             text = { Text("Are you sure you want to delete this job application?") },
             confirmButton = {
                 Button(
-                    onClick = {
-                        showDeleteDialog = false
-                        onBack()
-                    },
+                    onClick = { showDeleteDialog = false; onBack() },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
                     )
-                ) {
-                    Text("Delete")
-                }
+                ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
     }
 }
 
-@Composable
-private fun StatusDropdown(
-    currentStatus: ApplicationStatus,
-    onStatusSelected: (ApplicationStatus) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
+// ── Job Description section ───────────────────────────────────────────────────
 
-    Box {
-        OutlinedButton(
-            onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(currentStatus.displayName())
-            Spacer(Modifier.width(8.dp))
-            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            ALL_STATUSES.forEach { s ->
-                DropdownMenuItem(
-                    text = { Text(s.displayName()) },
-                    onClick = {
-                        onStatusSelected(s)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FitScoreCard(
-    score: Int?,
-    fitAnalysis: FitAnalysis?,
+private fun JobDescriptionSection(
+    jobDescription: String,
+    ocrText: String,
     isAnalyzing: Boolean,
-    errorType: ApiErrorType? = null,
-    retryAvailableAt: Long? = null,
-    onReAnalyze: () -> Unit,
-    onDismissError: () -> Unit = {}
+    retryAvailableAt: Long?,
+    onJobDescriptionChange: (String) -> Unit,
+    onAnalyzePaste: () -> Unit,
+    onAnalyzeUrl: () -> Unit,
+    onPickScreenshot: () -> Unit,
+    onAnalyzeOcr: () -> Unit
 ) {
-    var prosExpanded by remember { mutableStateOf(false) }
-    var consExpanded by remember { mutableStateOf(false) }
-    var missingExpanded by remember { mutableStateOf(false) }
+    var tabIndex by remember { mutableStateOf(0) }
+    val isRateLimited = retryAvailableAt != null && System.currentTimeMillis() < retryAvailableAt
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Animated ring replaces the raw number
-            FitScoreRing(score = score, size = 96.dp, strokeWidth = 10.dp)
-            Spacer(Modifier.height(4.dp))
-            Text("Fit Score", style = MaterialTheme.typography.labelMedium)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Job Description",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
 
-            // Typed inline error
-            val inlineError = when (errorType) {
-                ApiErrorType.AUTH -> "API key invalid — check your key in Settings"
-                ApiErrorType.RATE_LIMIT -> "Service busy — please try again in a minute"
-                else -> null
-            }
-            if (inlineError != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = inlineError,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            val analysis = fitAnalysis
-            if (analysis != null) {
-                Spacer(Modifier.height(12.dp))
-
-                ExpandableSection(
-                    title = "Pros (${analysis.pros.size})",
-                    expanded = prosExpanded,
-                    onToggle = { prosExpanded = !prosExpanded }
-                ) {
-                    analysis.pros.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            TabRow(
+                selectedTabIndex = tabIndex,
+                indicator = { tabPositions ->
+                    if (tabIndex < tabPositions.size) {
+                        Box(
+                            modifier = Modifier
+                                .tabIndicatorOffset(tabPositions[tabIndex])
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
                 }
-
-                Spacer(Modifier.height(4.dp))
-
-                ExpandableSection(
-                    title = "Cons (${analysis.cons.size})",
-                    expanded = consExpanded,
-                    onToggle = { consExpanded = !consExpanded }
-                ) {
-                    analysis.cons.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            ) {
+                JOB_DESCRIPTION_TABS.forEachIndexed { index, label ->
+                    Tab(
+                        selected = tabIndex == index,
+                        onClick = { tabIndex = index },
+                        text = { Text(label) }
+                    )
                 }
+            }
 
-                Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(12.dp))
 
-                ExpandableSection(
-                    title = "Missing Skills (${analysis.missingSkills.size})",
-                    expanded = missingExpanded,
-                    onToggle = { missingExpanded = !missingExpanded }
-                ) {
-                    analysis.missingSkills.forEach {
-                        Text("• $it", style = MaterialTheme.typography.bodySmall)
+            if (isAnalyzing) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                Text("Analyzing fit…", style = MaterialTheme.typography.bodySmall)
+            } else {
+                when (tabIndex) {
+                    0 -> { // Paste Text
+                        OutlinedTextField(
+                            value = jobDescription,
+                            onValueChange = { if (it.length <= 4000) onJobDescriptionChange(it) },
+                            label = { Text("Paste job description") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 4,
+                            maxLines = 10,
+                            supportingText = { Text("${jobDescription.length} / 4000") }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = onAnalyzePaste,
+                            enabled = jobDescription.isNotBlank() && !isRateLimited,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Analyze Fit")
+                        }
+                    }
+                    1 -> { // Paste URL
+                        OutlinedTextField(
+                            value = jobDescription,
+                            onValueChange = onJobDescriptionChange,
+                            label = { Text("Job posting URL") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = onAnalyzeUrl,
+                            enabled = jobDescription.isNotBlank() && !isRateLimited,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Fetch & Analyze")
+                        }
+                    }
+                    2 -> { // Screenshot
+                        Button(
+                            onClick = onPickScreenshot,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Pick Screenshot")
+                        }
+                        if (ocrText.isNotBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = ocrText,
+                                onValueChange = {},
+                                label = { Text("Extracted text") },
+                                modifier = Modifier.fillMaxWidth(),
+                                readOnly = true,
+                                minLines = 4,
+                                maxLines = 8
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = onAnalyzeOcr,
+                                enabled = !isRateLimited,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Analyze Fit")
+                            }
+                        }
                     }
                 }
             }
@@ -437,13 +466,11 @@ private fun FitScoreCard(
     }
 }
 
+// ── Expandable section ────────────────────────────────────────────────────────
+
 @Composable
-private fun ExpandableSection(
-    title: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable () -> Unit
-) {
+private fun ExpandableSection(title: String, items: List<String>) {
+    var expanded by remember { mutableStateOf(false) }
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -451,7 +478,7 @@ private fun ExpandableSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            IconButton(onClick = onToggle, modifier = Modifier.size(24.dp)) {
+            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
                 Icon(
                     if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                     contentDescription = if (expanded) "Collapse" else "Expand"
@@ -460,61 +487,70 @@ private fun ExpandableSection(
         }
         AnimatedVisibility(visible = expanded) {
             Column(modifier = Modifier.padding(start = 8.dp, top = 4.dp)) {
-                content()
+                items.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
 }
 
-@Composable
-private fun DatePickerField(
-    label: String,
-    dateMs: Long?,
-    onDateSelected: (Long) -> Unit
-) {
-    val context = LocalContext.current
-    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+// ── Status dropdown ───────────────────────────────────────────────────────────
 
-    OutlinedButton(
-        onClick = {
-            val cal = Calendar.getInstance()
-            dateMs?.let { cal.timeInMillis = it }
-            DatePickerDialog(
-                context,
-                { _, year, month, dayOfMonth ->
-                    val selected = Calendar.getInstance().also {
-                        it.set(year, month, dayOfMonth, 0, 0, 0)
-                        it.set(Calendar.MILLISECOND, 0)
-                    }
-                    onDateSelected(selected.timeInMillis)
-                },
-                cal.get(Calendar.YEAR),
-                cal.get(Calendar.MONTH),
-                cal.get(Calendar.DAY_OF_MONTH)
-            ).show()
-        },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text(
-            text = if (dateMs != null) "$label: ${dateFormat.format(Date(dateMs))}" else "Set $label"
-        )
+@Composable
+private fun StatusDropdown(
+    currentStatus: ApplicationStatus,
+    onStatusSelected: (ApplicationStatus) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(currentStatus.displayName())
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ALL_STATUSES.forEach { s ->
+                DropdownMenuItem(
+                    text = { Text(s.displayName()) },
+                    onClick = { onStatusSelected(s); expanded = false }
+                )
+            }
+        }
     }
 }
+
+// ── Date picker ───────────────────────────────────────────────────────────────
+
+@Composable
+private fun DatePickerField(label: String, dateMs: Long?, onDateSelected: (Long) -> Unit) {
+    val context = LocalContext.current
+    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    OutlinedButton(onClick = {
+        val cal = Calendar.getInstance()
+        dateMs?.let { cal.timeInMillis = it }
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                val selected = Calendar.getInstance().also {
+                    it.set(year, month, day, 0, 0, 0); it.set(Calendar.MILLISECOND, 0)
+                }
+                onDateSelected(selected.timeInMillis)
+            },
+            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }, modifier = Modifier.fillMaxWidth()) {
+        Text(if (dateMs != null) "$label: ${dateFormat.format(Date(dateMs))}" else "Set $label")
+    }
+}
+
+// ── Linked emails ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun LinkedEmailsSection(threadIds: List<String>) {
     Column {
-        Text(
-            "Linked Emails",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold
-        )
+        Text("Linked Emails", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         threadIds.forEach { threadId ->
-            SuggestionChip(
-                onClick = { /* Phase 7: open Gmail intent */ },
-                label = { Text(threadId, maxLines = 1) }
-            )
+            SuggestionChip(onClick = {}, label = { Text(threadId, maxLines = 1) })
             Spacer(Modifier.height(4.dp))
         }
     }

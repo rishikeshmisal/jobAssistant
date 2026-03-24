@@ -2048,6 +2048,1225 @@ Apply the following consistently where state transitions exist:
 
 ---
 
+## Phase 11 — Insights Screen: Tabbed Layout
+
+> **MVP goal:** The Insights screen is restructured into three focused tabs — **Career Profile**, **New Job**, and **Applied Jobs** — so each audience question has a clear home. No new API calls are introduced; all data comes from existing ViewModel flows.
+
+---
+
+### 11.1 InsightsUiState — Add UserProfile
+
+Update `InsightsUiState` in `InsightsViewModel.kt` to carry the logged-in user's profile:
+
+```kotlin
+data class InsightsUiState(
+    val stats: InsightsStats = InsightsStats(),
+    val insights: CareerInsights? = null,
+    val isRefreshing: Boolean = false,
+    val isRefreshEnabled: Boolean = true,
+    val error: String? = null,
+    val errorType: ApiErrorType? = null,
+    val retryAvailableAt: Long? = null,
+    val userProfile: UserProfile = UserProfile()   // ← new
+)
+```
+
+Import `com.jobassistant.domain.model.UserProfile`.
+
+---
+
+### 11.2 InsightsViewModel — Combine UserProfile Flow
+
+Update `observeData()` to also observe `userProfileDataStore.userProfileFlow`, combining it with the existing jobs + insights combine:
+
+```kotlin
+private fun observeData() {
+    viewModelScope.launch {
+        combine(
+            getAllJobsUseCase(),
+            getCareerInsightsUseCase(),
+            userProfileDataStore.userProfileFlow
+        ) { jobs, insights, profile ->
+            Triple(jobs, insights, profile)
+        }.collect { (jobs, insights, profile) ->
+            val stats = computeStats(jobs)
+            val isRefreshEnabled = insights == null ||
+                (System.currentTimeMillis() - insights.generatedDate) >= REFRESH_COOLDOWN_MS
+            _uiState.value = _uiState.value.copy(
+                stats = stats,
+                insights = insights,
+                isRefreshEnabled = isRefreshEnabled,
+                userProfile = profile
+            )
+        }
+    }
+}
+```
+
+No other ViewModel changes required.
+
+---
+
+### 11.3 InsightsScreen — Three-Tab Layout
+
+Rewrite `InsightsScreen.kt` with a `PrimaryTabRow` (3 tabs) above the content area. Use a remembered `selectedTab: Int` and a `when` block to switch content — no `HorizontalPager` needed.
+
+```
+Scaffold
+  topBar: TopAppBar("Insights")
+  content:
+    Column {
+      PrimaryTabRow(selectedTabIndex) {
+        Tab("Career Profile")
+        Tab("New Job")
+        Tab("Applied Jobs")
+      }
+      when (selectedTab) {
+        0 -> CareerProfileTab(uiState)
+        1 -> NewJobTab(uiState, onRefresh)
+        2 -> AppliedJobsTab(uiState)
+      }
+    }
+```
+
+---
+
+### 11.4 Tab 0 — Career Profile
+
+`CareerProfileTab` is a scrollable `Column` that gives a descriptive view of the user's professional identity:
+
+**User header:**
+- `CompanyAvatar(fullName, size = 56.dp)` centered
+- `fullName` as `titleLarge` below avatar
+- If `fullName` is blank, show "Complete your profile in Settings"
+
+**Resume summary card:**
+- `SectionHeader("Resume")`
+- If `resumeText` is blank: "No resume uploaded yet — go to Profile to upload your PDF"
+- If `resumeText` is not blank:
+  - Word count: `resumeText.split("\\s+".toRegex()).size` → "~N words"
+  - Character count: `resumeText.length` characters
+  - First 400 chars of resume as a faded preview in a `surfaceVariant` Card
+
+**Career interests card:**
+- `SectionHeader("Career Interests")`
+- Career goal text (`careerGoal`) — full text in a readable `bodyMedium` block. If blank, prompt to add.
+- Keywords as a `FlowRow` of `SuggestionChip` items. If empty, prompt to add.
+- Target salary range: if both > 0, show "£X – £Y" (or "$X – $Y"); otherwise "Not set"
+
+**AI career summary card** (only if `careerGoal` is not blank and looks AI-generated — heuristic: length > 80 chars):
+- `SectionHeader("AI Career Summary")`
+- Full `careerGoal` text in a `secondaryContainer` Card
+- Caption: "Generated from your resume by AI"
+
+---
+
+### 11.5 Tab 1 — New Job
+
+`NewJobTab` is an action-oriented view to inform the user's next job application, sourced entirely from `CareerInsights`.
+
+**When no insights exist:**
+- Centered empty state: `Icons.Filled.AutoAwesome` (96dp), title "No insights yet", subtitle "Tap Refresh to generate AI recommendations based on your job search history"
+- Full-width `Button("Generate Insights")` calling `onRefresh`
+
+**When insights exist:**
+
+```
+SectionHeader("Identified Gaps")
+FlowRow of SuggestionChip per gap (Warning icon, errorContainer colors)
+
+SectionHeader("What to Improve")
+Column of lightbulb action cards (tertiaryContainer) — one per recommendedAction
+
+SectionHeader("Market Feedback")
+Card(surfaceVariant) { Text(summaryAnalysis) }
+
+Row(SpaceBetween) {
+    Text("Last updated: MMM d, yyyy")
+    Button("Refresh", enabled = isRefreshEnabled && !isRefreshing)
+}
+```
+
+Show `LinearProgressIndicator` spanning full width while `isRefreshing`.
+
+For typed errors (AUTH / RATE_LIMIT) show inline error text below the refresh button using `MaterialTheme.colorScheme.error`.
+
+---
+
+### 11.6 Tab 2 — Applied Jobs
+
+`AppliedJobsTab` shows the historical analytics for submitted applications.
+
+**When `totalApplied == 0`:**
+- Centered empty state: `Icons.Filled.BarChart` (80dp), "Apply to some jobs first to see stats"
+
+**When data exists:**
+- `StatsCardsRow` (Applied / Interviews / Rejected / Offers — existing component)
+- `FunnelRow` (Applied → Interviews → Offers — existing component)
+- `RateSection` (Interview Rate + Rejection Rate bars — existing component)
+- **Top Companies card** (new):
+  ```
+  SectionHeader("Top Companies")
+  // For each of topCompanies (up to 3):
+  Row {
+      CompanyAvatar(companyName, size = 32.dp)
+      Text(companyName, bodyMedium, bold)
+      Spacer(weight=1f)
+      Text("N application(s)", labelSmall, onSurfaceVariant)
+  }
+  ```
+  If `topCompanies` is empty, omit this card.
+
+---
+
+### Phase 11 Testing Requirements
+
+**Unit tests** (`test/`):
+
+- `InsightsViewModelTabTest`: mock `UserProfileDataStore` returning a known `UserProfile`; verify `uiState.userProfile.fullName` propagates correctly from the DataStore flow after `observeData()` runs; verify `uiState.stats` and `uiState.userProfile` update together in a single emission.
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest jacocoCoverageVerification
+./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Phase 11 MVP Checkpoint
+
+- [ ] Insights screen shows 3 tabs: Career Profile / New Job / Applied Jobs
+- [ ] Career Profile tab shows resume word count, career goal, keywords as chips, AI summary card
+- [ ] New Job tab shows identified gaps, recommended actions, market feedback and Refresh button
+- [ ] Applied Jobs tab shows stats cards, funnel, rates, and top companies
+- [ ] Empty states show correctly on each tab when no data exists
+- [ ] Switching tabs is instant with no recomposition lag
+- [ ] All existing Phase 10 checkpoints still pass
+
+---
+
+## Phase 12 — Decouple "Add Job" from "Analyze Fit" (Progressive Disclosure)
+
+> **MVP goal:** "Add Job" is a fast, frictionless tracking form. Fit analysis is a deliberate action that lives on the job detail screen after the job is saved. Users discover the fit score naturally when they open a job they want to investigate.
+
+### Background & Rationale
+
+The current flow conflates two distinct user intents on a single screen:
+- **Tracking intent** — "I found a role, I want to log it" → fast, no AI needed
+- **Evaluation intent** — "I want to know if this role is worth pursuing" → deliberate, AI-powered
+
+Mixing them means the AI analysis gate blocks a simple save, and the "Add Job" label implies bookmarking but forces the user through an analysis step they may not want yet. The redesign separates these into two stages: **save first, score later**.
+
+---
+
+### 12.1 Simplify `AddJobScreen` — Tracking-Only Form
+
+Remove all AI/analysis content from `AddJobScreen`. It becomes a clean 4-field tracking form:
+
+**Fields to keep:**
+- Company Name (required)
+- Role Title (required)
+- Location (optional)
+- Salary Range (optional)
+
+**Fields to remove from this screen:**
+- Job Description text field (moves to Job Detail)
+- Job URL field (moves to Job Detail)
+- Screenshot / OCR tab (moves to Job Detail)
+- "Analyze Fit" button
+- "Fetch & Analyze" button
+- `FitResultSection` (score + pros/cons)
+- `DuplicateJobDialog` → keep but trigger from the save action directly
+
+**New primary action:** A single **"Save Job"** button at the bottom. On tap:
+1. Call `SaveJobApplicationUseCase` — creates the job with `status = SAVED`, `fitScore = null`
+2. On success: navigate directly to the new job's `JobDetailScreen` (pass the saved job ID)
+3. On duplicate detected: show `DuplicateJobDialog` inline
+
+**ViewModel changes (`AddJobViewModel`):**
+- Remove `analyzeFit()`, `fetchAndAnalyzeUrl()`, `processScreenshot()` — these move to `JobDetailViewModel`
+- Remove `AddJobUiState.Analyzing`, `AddJobUiState.FitResult` states
+- Simplify to: `Idle`, `Saving`, `Saved(jobId: UUID)`, `Duplicate(…)`, `Error`
+- `Saved` state now carries the new job ID so the screen can navigate to it
+
+**Navigation change in `AppNavigation.kt`:**
+- When `AddJobScreen` emits `AddJobUiState.Saved(jobId)`, navigate to `Screen.JobDetail.createRoute(jobId.toString())` and pop `AddJobScreen` off the back stack
+
+---
+
+### 12.2 Pending Fit Score State — `FitScoreRing` Shows `?`
+
+The `FitScoreRing` composable already handles `score = null` by rendering "N/A". Change that label to **"?"** to signal "not yet scored" rather than "no score available", making the ring feel like an invitation to act.
+
+Update in `ui/components/FitScoreRing.kt`:
+```kotlin
+text = if (score != null) "$score" else "?"
+```
+
+On the `JobCard` in `DashboardScreen`, the `?` ring acts as a visual affordance — users notice the incomplete ring and know there's something to do.
+
+---
+
+### 12.3 Expand `JobDetailScreen` — Full Evaluation Hub
+
+`JobDetailScreen` becomes the place where users supply the job description and trigger analysis. Move the three input paths here.
+
+**Add a new "Job Description" section** to `JobDetailScreen`, positioned between the fit score card and the editable fields:
+
+```
+── Fit Score (FitScoreRing) ──────────────────────────────────────
+   [?  ring until analyzed]
+
+── Job Description ───────────────────────────────────────────────
+   TabRow: [ Paste Text | Paste URL | Screenshot ]
+   [appropriate input for selected tab]
+
+   Button: "Analyze Fit"   ← primary action, full width
+
+── Notes / Location / Salary / Dates ────────────────────────────
+```
+
+**Tab content (moved from `AddJobScreen`):**
+- **Paste Text** — `OutlinedTextField` (multiline, 4000-char counter, `supportingText`)
+- **Paste URL** — URL field + "Fetch & Analyze" button
+- **Screenshot** — image picker + OCR preview + "Analyze Fit" button
+
+The job description entered here is also saved to `job.notes` (or a new dedicated `jobDescription` field — see 12.4) so it persists and pre-fills on subsequent opens.
+
+**ViewModel changes (`JobDetailViewModel`):**
+- Inject `EvaluateFitUseCase`, `OcrProcessor`, `FetchUrlUseCase`
+- Add `jobDescriptionTab: Int` state (0/1/2 for Paste/URL/Screenshot)
+- Add `jobDescription: MutableStateFlow<String>` — pre-filled from saved job on load
+- Add `ocrText: StateFlow<String>` (from OcrProcessor)
+- `fun analyzeFromPaste(text: String)` — calls `EvaluateFitUseCase`, updates `fitAnalysis` + saves score to job
+- `fun analyzeFromUrl(url: String)` — fetches, strips HTML, calls `EvaluateFitUseCase`
+- `fun analyzeFromScreenshot(uri: Uri, context: Context)` — runs OCR, calls `EvaluateFitUseCase`
+- All three paths auto-save the fit score to Room on success via `SaveJobApplicationUseCase`
+
+**BottomAppBar update:**
+- Remove the standalone "Re-analyze Fit" button from `BottomAppBar` — analysis is now triggered from within the Job Description section
+- Keep the Delete `IconButton` in `BottomAppBar`
+
+---
+
+### 12.4 Persist Job Description on the `JobApplication` Entity
+
+The job description needs a home in the data model so it pre-fills when the user reopens a job.
+
+**Domain model change (`JobApplication.kt`):**
+Add field:
+```kotlin
+val jobDescription: String = ""
+```
+
+**Room entity change (`JobApplicationEntity.kt`):**
+Add the same field. This requires a database migration.
+
+**Migration** — add a new migration in `AppDatabase`:
+```kotlin
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE job_applications ADD COLUMN jobDescription TEXT NOT NULL DEFAULT ''")
+    }
+}
+```
+Bump `@Database(version = 2)` and register the migration in `DatabaseModule`.
+
+**Mapper update** — map `jobDescription` in both directions in `JobApplicationMapper`.
+
+**DAO / Repository** — no changes required; `upsert` handles the new field automatically.
+
+---
+
+### 12.5 Remove Input-Mode Tabs from `AddJobScreen` — Clean Up `AddJobViewModel`
+
+After moving the analysis logic to `JobDetailViewModel`:
+
+- Delete `InputMode` enum from `AddJobScreen.kt`
+- Delete `AddJobViewModelOcrTest` test cases that test OCR path through `AddJobViewModel` (they will be re-written for `JobDetailViewModel` in the testing section)
+- The `OcrProcessor` and `FetchUrlUseCase` injections move from `AddJobViewModel` to `JobDetailViewModel`
+
+---
+
+### Phase 12 Testing Requirements
+
+**Unit tests** (`test/`):
+
+- `AddJobViewModelSimplifiedTest`: verify `saveJob()` creates a `JobApplication` with `fitScore = null` and `status = SAVED`; verify `Saved(jobId)` state is emitted after a successful save; verify `Duplicate` state is emitted when `findDuplicate` returns a match.
+- `JobDetailViewModelAnalysisTest`: mock `EvaluateFitUseCase`; verify `analyzeFromPaste(text)` calls `EvaluateFitUseCase` with the user's `resumeText` and the supplied text; verify the returned `FitAnalysis` updates `uiState.fitAnalysis` and auto-saves the score to Room; verify `analyzeFromUrl(url)` calls `FetchUrlUseCase` then `EvaluateFitUseCase` in sequence; verify `analyzeFromScreenshot` runs OCR then `EvaluateFitUseCase`.
+- `JobApplicationMigrationTest`: use `MigrationTestHelper`; verify `MIGRATION_1_2` runs without error on a v1 database; verify existing rows retain their data and the new `jobDescription` column defaults to `""`.
+
+**Instrumented tests** (`androidTest/`):
+
+- `AddJobScreenSimplifiedTest`: render the new `AddJobScreen`; verify only Company Name, Role Title, Location, Salary Range fields are present; verify the "Save Job" button is present; verify "Analyze Fit" button is NOT present; verify tapping "Save Job" with a company name and role navigates to `JobDetailScreen`.
+- `JobDetailAnalysisTest`: open a job with `fitScore = null`; verify the `FitScoreRing` shows "?"; enter a job description in the Paste Text tab; tap "Analyze Fit"; verify the ring updates with the mocked score.
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest jacocoCoverageVerification
+./gradlew connectedDebugAndroidTest
+```
+
+### Phase 12 MVP Checkpoint
+
+- [ ] "Add Job" screen has 4 fields only — company, role, location, salary. No description, no URL, no screenshot tab, no Analyze button.
+- [ ] Saving a new job navigates directly to its `JobDetailScreen`
+- [ ] New jobs show `?` in the `FitScoreRing` on the Dashboard
+- [ ] Job Detail has a Job Description section with Paste / URL / Screenshot tabs
+- [ ] "Analyze Fit" on Job Detail updates the ring score and saves it to Room
+- [ ] Job description persists — reopening the job pre-fills the description field
+- [ ] `MIGRATION_1_2` runs cleanly on a device with existing data
+- [ ] All Phase 1–11 MVP checkpoints still pass
+
+---
+
+## Phase 13 — CSV Import with AI Column Mapping
+
+> **MVP goal:** A user can upload a CSV of their existing job applications (exported from a spreadsheet, LinkedIn, or any tracker) and the app will use Gemini to intelligently map whatever column names are present to the correct database fields. Parsed entries are shown in a preview screen before the user confirms the import.
+
+### Background & Rationale
+
+Users switching to this app from a spreadsheet or another tracker already have months of history. Asking them to re-enter every row manually is a non-starter. CSV is the universal export format — every spreadsheet app, LinkedIn, and most ATS tools can produce one. The column names will be inconsistent ("Company", "Organisation", "Employer", "Company Name"), so a hard-coded parser would break on most files. Gemini resolves this by reading the headers and a few sample rows and returning a machine-readable column mapping. The app then parses the full file using that mapping.
+
+---
+
+### 13.1 Domain Models — `CsvColumnMapping` and `CsvImportPreview`
+
+Create the following in `domain/model/`:
+
+**`CsvColumnMapping.kt`**
+```kotlin
+data class CsvColumnMapping(
+    /** Maps each CSV column header to a db field name, or "IGNORE" to skip it.
+     *  DB field names: companyName, roleTitle, status, appliedDate,
+     *                  location, salaryRange, notes, fitScore */
+    val columnMappings: Map<String, String>,
+    /** Maps raw status string values found in the CSV to ApplicationStatus enum names.
+     *  e.g. "Applied" → "APPLIED", "Phone Screen" → "INTERVIEWING" */
+    val statusMappings: Map<String, String>,
+    /** Java SimpleDateFormat pattern detected in the date column, e.g. "yyyy-MM-dd", "MM/dd/yyyy".
+     *  Null if no date column was detected. */
+    val datePattern: String?
+)
+```
+
+**`CsvImportPreview.kt`**
+```kotlin
+data class CsvImportPreview(
+    val jobs: List<JobApplication>,    // fully constructed, ready to insert
+    val columnMapping: CsvColumnMapping,
+    val totalRows: Int,                // rows in the CSV (excluding header)
+    val skippedRows: Int               // rows missing required fields (companyName/roleTitle)
+)
+```
+
+---
+
+### 13.2 `CsvParser` Utility
+
+Create `util/CsvParser.kt` — a pure Kotlin utility with no Android dependencies (testable on JVM).
+
+**Responsibilities:**
+- Parse a raw CSV string into a list of rows, each row being a `List<String>`
+- Handle quoted fields (fields containing commas wrapped in double-quotes)
+- Handle escaped quotes (`""` inside a quoted field)
+- Return `null` if the file is empty or has no header row
+
+**Interface:**
+```kotlin
+object CsvParser {
+    data class ParsedCsv(val headers: List<String>, val rows: List<List<String>>)
+
+    fun parse(csvText: String): ParsedCsv?
+}
+```
+
+**Sample rows for Gemini:** take the first 5 data rows (or fewer if the file is short) — enough for Gemini to infer column semantics without sending the full file.
+
+---
+
+### 13.3 Gemini API — Add `mapCsvColumns()`
+
+**Add to `ClaudeRepository` interface** (`data/repository/ClaudeRepository.kt`):
+```kotlin
+suspend fun mapCsvColumns(
+    headers: List<String>,
+    sampleRows: List<List<String>>
+): CsvColumnMapping
+```
+
+**Implement in `GeminiRepository`:**
+
+Prompt design — send headers + sample data and ask for a strict JSON response:
+
+```
+You are mapping a CSV file of job applications to a database schema.
+
+CSV headers: ["Company", "Role", "Date Applied", "Current Status", "City"]
+Sample rows (up to 5):
+Row 1: ["Google", "Android Engineer", "2024-03-15", "Rejected", "London"]
+Row 2: ["Meta", "SWE", "2024-04-01", "Applied", ""]
+
+Return ONLY a JSON object with these exact fields:
+{
+  "column_mappings": {
+    "<header>": "<db_field or IGNORE>"
+    // db_field must be one of: companyName, roleTitle, status, appliedDate,
+    //   location, salaryRange, notes, fitScore, IGNORE
+  },
+  "status_mappings": {
+    "<csv_status_value>": "<ApplicationStatus>"
+    // ApplicationStatus must be one of: SAVED, APPLIED, INTERVIEWING, OFFERED, REJECTED
+  },
+  "date_pattern": "<SimpleDateFormat pattern or null>"
+}
+
+Rules:
+- Every header must appear in column_mappings. Use IGNORE for irrelevant columns.
+- companyName and roleTitle are required — if you cannot find them, still map the closest match.
+- status_mappings must cover every distinct status value visible in the sample rows.
+- For date_pattern: detect the format from sample data (e.g. "yyyy-MM-dd", "dd/MM/yyyy", "MMM d, yyyy"). Set null if no date column.
+```
+
+Parse the JSON response into `CsvColumnMapping` using Gson. Throw `ClaudeParseException` if required keys are missing.
+
+---
+
+### 13.4 `ImportCsvUseCase`
+
+Create `domain/usecase/ImportCsvUseCase.kt` — orchestrates the full import pipeline:
+
+```kotlin
+class ImportCsvUseCase @Inject constructor(
+    private val claudeRepository: ClaudeRepository
+) {
+    suspend fun preview(csvText: String): ClaudeResult<CsvImportPreview>
+    suspend fun commit(preview: CsvImportPreview, repository: JobApplicationRepository)
+}
+```
+
+**`preview(csvText)` flow:**
+1. Call `CsvParser.parse(csvText)` — return error if null
+2. Send headers + first 5 rows to `claudeRepository.mapCsvColumns()`
+3. Apply the mapping to all data rows:
+   - For each row: extract `companyName` and `roleTitle` (skip row if either is blank)
+   - Parse `appliedDate` using `datePattern` — try the detected pattern, fall back to a list of common patterns, null if all fail
+   - Map `status` value through `statusMappings` → `ApplicationStatus`, default to `APPLIED` if unmapped
+   - Parse `fitScore` as `Int?`
+   - Map remaining fields to location, salaryRange, notes
+4. Return `CsvImportPreview(jobs, mapping, totalRows, skippedRows)`
+
+**Date parsing fallback patterns** (try in order if `datePattern` parsing fails):
+```
+"yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy",
+"d MMM yyyy", "MMM d, yyyy", "d-MMM-yy", "yyyy/MM/dd"
+```
+
+**`commit(preview, repository)` flow:**
+- For each job in `preview.jobs`: call `SaveJobApplicationUseCase` (respects duplicate detection)
+- This is a fire-and-forget batch; duplicate rows are silently skipped
+
+---
+
+### 13.5 `CsvImportViewModel`
+
+Create `ui/screens/csv/CsvImportViewModel.kt`:
+
+```kotlin
+sealed class CsvImportUiState {
+    object Idle : CsvImportUiState()
+    object ReadingFile : CsvImportUiState()
+    object MappingColumns : CsvImportUiState()   // Gemini call in progress
+    data class Preview(val preview: CsvImportPreview) : CsvImportUiState()
+    object Importing : CsvImportUiState()
+    data class Done(val imported: Int, val duplicates: Int) : CsvImportUiState()
+    data class Error(val message: String) : CsvImportUiState()
+}
+```
+
+**Methods:**
+- `fun onCsvPicked(uri: Uri, context: Context)` — reads the file content, calls `importCsvUseCase.preview()`
+- `fun confirmImport()` — calls `importCsvUseCase.commit()` with the current preview, transitions to `Done`
+- `fun reset()` — back to `Idle`
+
+**Injected:** `ImportCsvUseCase`, `SaveJobApplicationUseCase`, `JobApplicationRepository`
+
+---
+
+### 13.6 `CsvImportScreen`
+
+Create `ui/screens/csv/CsvImportScreen.kt` — a dedicated screen with the following states:
+
+**`Idle` state:**
+```
+Large centered illustration: Icons.Filled.UploadFile (96dp, primary color)
+Title: "Import from CSV"
+Body: "Upload a CSV file exported from LinkedIn, a spreadsheet, or any job tracker.
+       Gemini will automatically map your columns."
+Button: "Choose CSV File" (launches GetContent("text/*") or ("*/*"))
+```
+
+**`ReadingFile` / `MappingColumns` states:**
+```
+CircularProgressIndicator
+Text: "Reading file…" / "Mapping columns with AI…"
+```
+
+**`Preview` state — the main review screen:**
+
+Top summary card:
+```
+"Found N jobs across N rows  •  N skipped (missing company or role)"
+```
+
+Column mapping section (collapsible `Card`):
+```
+SectionHeader("Detected Column Mapping")
+For each mapped column (non-IGNORE):
+  Row { Text(csvColumn) → Icon(ArrowForward) → Text(dbField) }
+```
+
+Job preview list (`LazyColumn`, max visible 50):
+```
+For each job in preview.jobs:
+  Card {
+    Row {
+      CompanyAvatar(companyName)
+      Column {
+        Text(companyName, titleSmall, bold)
+        Text(roleTitle, bodySmall)
+        Row {
+          StatusChip(status)
+          if (appliedDate != null) RelativeTimeText(appliedDate)
+        }
+      }
+    }
+  }
+```
+
+Bottom action bar:
+```
+Row {
+    OutlinedButton("Cancel") { viewModel.reset(); navController.popBackStack() }
+    Button("Import N Jobs", enabled = preview.jobs.isNotEmpty()) { viewModel.confirmImport() }
+}
+```
+
+**`Importing` state:**
+```
+LinearProgressIndicator (full width)
+Text("Importing ${preview.jobs.size} jobs…")
+```
+
+**`Done` state:**
+```
+Icon: Icons.Filled.CheckCircle (96dp, green)
+Text("Import complete")
+Text("${imported} jobs added  •  ${duplicates} already existed")
+Button("View Dashboard") { navigate to Dashboard, pop CsvImport }
+```
+
+**`Error` state:**
+```
+Text(error, color = error)
+Button("Try Again") { viewModel.reset() }
+```
+
+---
+
+### 13.7 Navigation and Entry Point
+
+**Add to `Screen.kt`:**
+```kotlin
+object CsvImport : Screen("csv_import")
+```
+
+**Add to `AppNavigation.kt`:**
+```kotlin
+composable(Screen.CsvImport.route) {
+    CsvImportScreen(onBack = { navController.popBackStack() })
+}
+```
+
+**Add to `ProfileScreen.kt`** — in the "Data" section card, below "Export Data":
+```kotlin
+OutlinedButton(
+    onClick = { navController.navigate(Screen.CsvImport.route) },
+    modifier = Modifier.fillMaxWidth().testTag("import_csv_button")
+) {
+    Text("Import from CSV")
+}
+```
+
+`ProfileScreen` will need `navController` passed in from `AppNavigation` (or use `LocalNavController` if available).
+
+---
+
+### 13.8 Status Value Normalisation Reference
+
+Document the expected `ApplicationStatus` mappings so Gemini's prompt produces consistent results:
+
+| Input value (examples) | Maps to |
+|---|---|
+| "Applied", "Submitted", "Sent", "In Progress" | `APPLIED` |
+| "Rejected", "No", "Declined", "Not Selected", "Closed" | `REJECTED` |
+| "Interview", "Phone Screen", "Call Received", "Screening", "Assessment" | `INTERVIEWING` |
+| "Offer", "Offered", "Accepted" | `OFFERED` |
+| "Saved", "Wishlist", "To Apply", "Interested" | `SAVED` |
+
+These are examples only — Gemini will infer mappings from the actual CSV values in each file.
+
+---
+
+### Phase 13 Testing Requirements
+
+**Unit tests** (`test/`):
+
+- `CsvParserTest`:
+  - Standard CSV with comma-separated values parses correctly
+  - Quoted fields containing commas parse as a single field
+  - Escaped quotes (`""`) inside a quoted field are handled
+  - Empty file returns `null`
+  - Header-only file (no data rows) returns `ParsedCsv` with empty rows list
+  - CSV with trailing newline does not produce an extra empty row
+
+- `ImportCsvUseCaseTest`:
+  - Mock `ClaudeRepository.mapCsvColumns()` returning a known `CsvColumnMapping`; verify the correct `JobApplication` fields are populated from mapped columns
+  - Row with blank `companyName` is skipped; `skippedRows` count increments
+  - Row with blank `roleTitle` is skipped
+  - Status value mapped via `statusMappings` → correct `ApplicationStatus`
+  - Unknown status value (not in `statusMappings`) defaults to `APPLIED`
+  - Date parsed with `datePattern` produces correct epoch millis
+  - Date parsing falls back to alternative patterns when `datePattern` fails
+  - `fitScore` column with integer value parses to `Int?` correctly
+  - `fitScore` column with non-integer value stores `null`
+
+- `CsvImportViewModelTest`:
+  - `onCsvPicked` transitions through `ReadingFile` → `MappingColumns` → `Preview`
+  - `onCsvPicked` with empty file emits `Error`
+  - `confirmImport` transitions `Preview` → `Importing` → `Done`
+  - `Done` state carries correct `imported` and `duplicates` counts
+  - `reset()` returns to `Idle`
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest jacocoCoverageVerification
+./gradlew connectedDebugAndroidTest
+```
+
+### Phase 13 MVP Checkpoint
+
+- [ ] "Import from CSV" button visible in Profile → Data section
+- [ ] Tapping it opens file picker filtered to CSV/text files
+- [ ] File is read and sent to Gemini; "Mapping columns with AI…" spinner shown
+- [ ] Preview screen shows detected column mapping and list of parsed jobs with StatusChip + date
+- [ ] Summary card shows total found, total skipped
+- [ ] "Import N Jobs" button inserts all jobs into Room; duplicate rows are silently skipped
+- [ ] Done screen shows correct imported/duplicate counts
+- [ ] Navigating to Dashboard after import shows all newly added jobs
+- [ ] `CsvParserTest` and `ImportCsvUseCaseTest` all pass
+- [ ] No regressions — all Phase 1–12 checkpoints still pass
+
+---
+
+## Phase 14 — Redesign `ApplicationStatus` Lifecycle
+
+> **MVP goal:** Replace the 5-value `ApplicationStatus` enum with a 10-value lifecycle that reflects how job applications actually progress. Migrate existing data, update every screen and service that references statuses, and keep all tests passing.
+
+### Background & Rationale
+
+The existing `SAVED → APPLIED → INTERVIEWING → OFFERED → REJECTED` model collapses distinct stages that matter to job seekers:
+- "Screening" (an HR call) and "Interviewing" (technical rounds) are completely different stages with different actions
+- "Offer received" and "Offer accepted" are two different decisions
+- "Rejected" and "No response" feel very different to a candidate — one closes the loop, the other leaves them in limbo
+- "Withdrawn" is missing — users do abandon applications
+
+These distinctions matter for AI insights (rejection rate vs. ghost rate), for Gmail parsing (screening email vs. interview invite), and for the candidate's own sanity.
+
+---
+
+### 14.1 New `ApplicationStatus` Enum
+
+Replace `domain/model/ApplicationStatus.kt` with:
+
+```kotlin
+enum class ApplicationStatus {
+    /** Found the role, saved to apply later. Has not yet submitted anything. */
+    INTERESTED,
+
+    /** Application submitted — CV sent, form filled, or "Easy Apply" clicked. */
+    APPLIED,
+
+    /** Initial contact from the company — HR screen, recruiter call, or automated pre-screen. */
+    SCREENING,
+
+    /** Active interview rounds — phone, video, or on-site technical/behavioural interviews. */
+    INTERVIEWING,
+
+    /** Take-home task, coding challenge, or technical/psychometric assessment. */
+    ASSESSMENT,
+
+    /** Formal written offer received but not yet accepted or declined. */
+    OFFER,
+
+    /** Offer accepted — role secured. Terminal success state. */
+    ACCEPTED,
+
+    /** Not progressing — rejected at any stage by the company. Terminal failure state. */
+    REJECTED,
+
+    /** Application withdrawn by the user before a decision was made. Terminal state. */
+    WITHDRAWN,
+
+    /** No reply received after applying. Different from REJECTED — company went silent. */
+    NO_RESPONSE
+}
+```
+
+---
+
+### 14.2 Database Migration — `MIGRATION_2_3`
+
+The Room `TypeConverter` stores `ApplicationStatus` as a `String` (the enum name). Existing rows contain the old names `"SAVED"` and `"OFFERED"` which no longer exist in the new enum — Room will throw on read if not migrated.
+
+**Add `MIGRATION_2_3` in `AppDatabase.kt`:**
+
+```kotlin
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Rename old values to new names
+        database.execSQL("UPDATE job_applications SET status = 'INTERESTED' WHERE status = 'SAVED'")
+        database.execSQL("UPDATE job_applications SET status = 'OFFER' WHERE status = 'OFFERED'")
+        // APPLIED, INTERVIEWING, REJECTED are unchanged — no UPDATE needed
+    }
+}
+```
+
+Bump `@Database(version = 3)`. Register both `MIGRATION_1_2` and `MIGRATION_2_3` in `create()`:
+```kotlin
+.addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+```
+
+---
+
+### 14.3 Display Names and Pipeline Order
+
+**Canonical display name function** (add as extension in `ApplicationStatus.kt`):
+
+```kotlin
+fun ApplicationStatus.displayName(): String = when (this) {
+    ApplicationStatus.INTERESTED   -> "Interested"
+    ApplicationStatus.APPLIED      -> "Applied"
+    ApplicationStatus.SCREENING    -> "Screening"
+    ApplicationStatus.INTERVIEWING -> "Interviewing"
+    ApplicationStatus.ASSESSMENT   -> "Assessment"
+    ApplicationStatus.OFFER        -> "Offer Received"
+    ApplicationStatus.ACCEPTED     -> "Accepted"
+    ApplicationStatus.REJECTED     -> "Rejected"
+    ApplicationStatus.WITHDRAWN    -> "Withdrawn"
+    ApplicationStatus.NO_RESPONSE  -> "No Response"
+}
+```
+
+**Pipeline order** — used for Kanban column order and the status change sheet:
+```kotlin
+val ACTIVE_PIPELINE = listOf(
+    ApplicationStatus.INTERESTED,
+    ApplicationStatus.APPLIED,
+    ApplicationStatus.SCREENING,
+    ApplicationStatus.INTERVIEWING,
+    ApplicationStatus.ASSESSMENT,
+    ApplicationStatus.OFFER,
+    ApplicationStatus.ACCEPTED
+)
+
+val TERMINAL_STATUSES = listOf(
+    ApplicationStatus.REJECTED,
+    ApplicationStatus.WITHDRAWN,
+    ApplicationStatus.NO_RESPONSE
+)
+
+val ALL_STATUSES = ACTIVE_PIPELINE + TERMINAL_STATUSES
+```
+
+Kanban board: show `ACTIVE_PIPELINE` columns first (left to right), then `TERMINAL_STATUSES` grouped at the right end under a faded "Closed" section header.
+
+---
+
+### 14.4 `StatusChip` Color Mapping
+
+Update `ui/components/StatusChip.kt` with distinct tonal pairs for all 10 values:
+
+| Status | Container color | Label color |
+|---|---|---|
+| `INTERESTED` | `#E8EAF6` (indigo 50) | `#3949AB` (indigo 600) |
+| `APPLIED` | `#E3F2FD` (blue 50) | `#1565C0` (blue 800) |
+| `SCREENING` | `#E0F7FA` (cyan 50) | `#00838F` (cyan 800) |
+| `INTERVIEWING` | `#FFF8E1` (amber 50) | `#F57F17` (amber 900) |
+| `ASSESSMENT` | `#F3E5F5` (purple 50) | `#7B1FA2` (purple 800) |
+| `OFFER` | `#F1F8E9` (light-green 50) | `#33691E` (light-green 900) |
+| `ACCEPTED` | `#E8F5E9` (green 50) | `#1B5E20` (green 900) |
+| `REJECTED` | `#FFEBEE` (red 50) | `#C62828` (red 800) |
+| `WITHDRAWN` | `#FAFAFA` (grey 50) | `#757575` (grey 600) |
+| `NO_RESPONSE` | `#ECEFF1` (blue-grey 50) | `#546E7A` (blue-grey 600) |
+
+---
+
+### 14.5 Screens to Update
+
+Every `when(status)` or `STATUS_ORDER` list in the UI must be replaced with `ALL_STATUSES` (or `ACTIVE_PIPELINE` / `TERMINAL_STATUSES` where appropriate). Remove all local `displayName()` private functions — use the canonical extension from `ApplicationStatus.kt`.
+
+**`DashboardScreen.kt`:**
+- Replace `STATUS_ORDER` with `ACTIVE_PIPELINE + TERMINAL_STATUSES`
+- Kanban `LazyRow`: render `ACTIVE_PIPELINE` columns normally, then a `KanbanTerminalGroup` composable that shows `REJECTED`, `WITHDRAWN`, `NO_RESPONSE` under a faint `"Closed"` divider label
+- List view filter chips: show all 10 statuses horizontally scrollable
+
+**`JobDetailScreen.kt`:**
+- `StatusDropdown` must list all `ALL_STATUSES`
+- Remove local `displayName()` — use the extension
+
+**`InsightsViewModel.kt` — redefine stats:**
+```kotlin
+// "Applied" = everything that is not INTERESTED (i.e. something was submitted)
+val applied = jobs.count { it.status != ApplicationStatus.INTERESTED }
+// "Interviews" = SCREENING + INTERVIEWING + ASSESSMENT (any live interaction)
+val interviews = jobs.count {
+    it.status in listOf(SCREENING, INTERVIEWING, ASSESSMENT)
+}
+// "Offers" = OFFER + ACCEPTED
+val offers = jobs.count { it.status in listOf(OFFER, ACCEPTED) }
+// "Rejections" = REJECTED only (WITHDRAWN and NO_RESPONSE are separate signals)
+val rejections = jobs.count { it.status == REJECTED }
+```
+
+Add two new `InsightsStats` fields:
+```kotlin
+val withdrawn: Int = 0
+val noResponse: Int = 0
+```
+
+Update the `StatsCardsRow` in `InsightsScreen` to show 6 cards: Applied, Interviews, Offers, Rejections, Withdrawn, No Response.
+
+**`HeroStatsStrip` in `DashboardScreen.kt`:** iterate `ALL_STATUSES` to build mini-stat cards.
+
+---
+
+### 14.6 Gmail Email Pipeline Updates
+
+**`EmailPreFilter.kt`** — no changes needed (classifies by regex signals, not enum values).
+
+**`GmailSyncWorker.kt`** — update the `action_type → ApplicationStatus` mapping:
+
+```kotlin
+"APPLIED"    -> ApplicationStatus.APPLIED
+"REJECTION"  -> ApplicationStatus.REJECTED
+"INTERVIEW"  -> ApplicationStatus.SCREENING   // first contact = screening
+"ALERT"      -> null  // no status change, just a notification
+```
+
+The worker can be enhanced later to detect `INTERVIEWING` vs `SCREENING` from the email body, but for MVP the first interview invite maps to `SCREENING`.
+
+**`GeminiRepository.parseEmail()`** — update the prompt to reflect new status values so the AI returns the right enum names:
+
+```
+"action_type": one of APPLIED, REJECTION, INTERVIEW, ALERT, IRRELEVANT
+```
+This prompt field stays unchanged (still 5 coarse types). The mapping in the worker handles the granularity.
+
+---
+
+### 14.7 Phase 13 CSV Import — Update Status Mappings
+
+Update the Gemini prompt in `GeminiRepository.mapCsvColumns()` to include the full status vocabulary:
+
+```
+// ApplicationStatus must be one of:
+// INTERESTED, APPLIED, SCREENING, INTERVIEWING, ASSESSMENT,
+// OFFER, ACCEPTED, REJECTED, WITHDRAWN, NO_RESPONSE
+```
+
+Update `section 13.8 Status Value Normalisation Reference` in `execution.md` accordingly:
+
+| CSV input (examples) | Maps to |
+|---|---|
+| "Interested", "Wishlist", "Saved", "To Apply" | `INTERESTED` |
+| "Applied", "Submitted", "Sent", "In Progress" | `APPLIED` |
+| "Phone Screen", "HR Call", "Recruiter Call", "Call Received", "Pre-screen" | `SCREENING` |
+| "Interview", "Technical Round", "Final Round", "On-site" | `INTERVIEWING` |
+| "Assessment", "Take-home", "Test", "Coding Challenge", "Task" | `ASSESSMENT` |
+| "Offer", "Offer Received" | `OFFER` |
+| "Accepted", "Signed" | `ACCEPTED` |
+| "Rejected", "No", "Declined", "Not Selected", "Closed" | `REJECTED` |
+| "Withdrawn", "Cancelled", "Pulled Out" | `WITHDRAWN` |
+| "No Response", "Ghosted", "Silence", "No Reply" | `NO_RESPONSE` |
+
+---
+
+### Phase 14 Testing Requirements
+
+**Unit tests** (`test/`):
+
+- `ApplicationStatusTest`: verify all 10 `ApplicationStatus.displayName()` values return non-blank strings; verify `ALL_STATUSES` contains all 10 values; verify `ACTIVE_PIPELINE + TERMINAL_STATUSES == ALL_STATUSES`.
+- `StatusChipColorTest` (update existing): verify all 10 statuses have distinct container colors and distinct label colors.
+- `InsightsViewModelStatsTest` (update existing): verify `applied` count excludes `INTERESTED` jobs; verify `interviews` count includes `SCREENING`, `INTERVIEWING`, `ASSESSMENT`; verify `offers` includes both `OFFER` and `ACCEPTED`; verify `withdrawn` and `noResponse` counts are computed separately.
+- `JobApplicationMigrationTest` (update existing): add test for `MIGRATION_2_3`; verify `"SAVED"` rows become `"INTERESTED"` and `"OFFERED"` rows become `"OFFER"` after migration; verify all other status values are unchanged.
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest jacocoCoverageVerification
+./gradlew connectedDebugAndroidTest
+```
+
+### Phase 14 MVP Checkpoint
+
+- [ ] `ApplicationStatus` has exactly 10 values matching the enum above
+- [ ] Existing device data migrates cleanly — no `IllegalArgumentException` on enum decode
+- [ ] Kanban shows active pipeline columns then a "Closed" group for Rejected/Withdrawn/No Response
+- [ ] Status change sheet lists all 10 statuses with correct display names
+- [ ] `StatusChip` renders 10 distinct color pairs
+- [ ] Insights stats correctly compute applied/interviews/offers/rejections/withdrawn/no-response
+- [ ] Gmail sync maps interview emails to `SCREENING`
+- [ ] `MIGRATION_2_3` verified with `MigrationTestHelper`
+- [ ] All Phase 1–13 checkpoints still pass
+
+---
+
+## Phase 15 — Quick Evaluate: Frictionless Job Fit Scoring
+
+> **MVP goal:** A user can get a compatibility score for any job description — via paste, URL, or screenshot — without being forced to save the job first. Evaluation is entirely stateless until the user explicitly decides to track the opportunity.
+
+### Background & Rationale
+
+Phase 12 correctly separated "tracking a job" (Add Job) from "evaluating a job" (Job Detail). But it introduced a new problem: **a user must create a permanent DB entry before they can see a score**. This is backwards — the score is often the input to the decision of whether to save at all.
+
+The classic use case: a user browses LinkedIn, spots a role, wants to know in 10 seconds if it's worth pursuing. The current flow forces them to open Add Job → fill in company + role → tap Save → land in Job Detail → find the description section → paste → analyze. That's 6 steps before getting the answer to a 1-question decision.
+
+Phase 15 adds a **"Quick Evaluate"** path: a stateless screen that accepts a job description, returns a score + breakdown, and optionally saves the job if the user decides it's worth tracking.
+
+---
+
+### 15.1 `EvaluateJobScreen` and `EvaluateJobViewModel`
+
+**New screen:** `ui/screens/evaluate/EvaluateJobScreen.kt`
+**New ViewModel:** `ui/screens/evaluate/EvaluateJobViewModel.kt`
+
+#### `EvaluateJobViewModel` — states and methods
+
+```kotlin
+sealed class EvaluateJobUiState {
+    object Idle : EvaluateJobUiState()
+    object Analyzing : EvaluateJobUiState()
+    data class Result(
+        val analysis: FitAnalysis,
+        val jobDescription: String    // retained so it pre-fills Job Detail on save
+    ) : EvaluateJobUiState()
+    data class Saved(val jobId: UUID) : EvaluateJobUiState()
+    data class Error(val message: String) : EvaluateJobUiState()
+}
+```
+
+**Injected:** `EvaluateFitUseCase`, `FetchUrlUseCase`, `OcrProcessor`, `UserProfileDataStore`, `SaveJobApplicationUseCase`, `JobApplicationRepository`
+
+**Methods:**
+- `fun analyzeFromPaste(text: String)` — calls `EvaluateFitUseCase`, transitions to `Result`
+- `fun analyzeFromUrl(url: String)` — calls `FetchUrlUseCase` then `EvaluateFitUseCase`
+- `fun analyzeFromScreenshot(uri: Uri, context: Context)` — OCR then `EvaluateFitUseCase`
+- `fun saveJob(companyName: String, roleTitle: String)` — creates a `JobApplication` with `status = APPLIED`, `fitScore = result.analysis.score`, `jobDescription = result.jobDescription`, saves via `SaveJobApplicationUseCase`, emits `Saved(jobId)`. If either name is blank, use "Unknown Company" / "Unknown Role" as a placeholder so the save always succeeds.
+- `fun reset()` — back to `Idle`
+
+#### `EvaluateJobScreen` — layout
+
+**`Idle` / input state:**
+```
+TopAppBar: "Evaluate Fit"  ← back button
+
+TabRow: [ Paste Text | Paste URL | Screenshot ]
+
+(tab content same as JobDetailScreen Job Description section)
+
+Button: "Check Fit"  (disabled while text is blank / URL is blank)
+```
+
+**`Analyzing` state:**
+```
+LinearProgressIndicator (full width)
+Text: "Analyzing fit…"
+```
+
+**`Result` state — the answer:**
+```
+Card(surfaceVariant) {
+    FitScoreRing(score, size=96dp, strokeWidth=10dp)   centered
+    Text("Fit Score", labelMedium)
+}
+
+ExpandableSection("Strengths (N)")   — pros, green tinted
+ExpandableSection("Weaknesses (N)")  — cons, amber tinted
+ExpandableSection("Missing Skills (N)") — missingSkills, blue chips
+
+── Save section ────────────────────────────────────────────
+Text("Want to track this opportunity?", labelMedium)
+OutlinedTextField("Company Name", optional)
+OutlinedTextField("Role Title", optional)
+Button("Save & Track")   → calls saveJob()
+TextButton("Start Over") → reset()
+```
+
+**`Saved` state:**
+```
+Icon: Icons.Filled.CheckCircle (72dp, green)
+Text("Saved to your tracker")
+Button("View Job Detail") → navigate to JobDetail(jobId), pop EvaluateJob
+TextButton("Evaluate Another") → reset()
+```
+
+**`Error` state:**
+```
+Text(error, color = error)
+Button("Try Again") → reset()
+```
+
+---
+
+### 15.2 Entry Point — SpeedDial FAB on Dashboard
+
+Replace the single `+` FAB on `DashboardScreen` with a **SpeedDial FAB** that expands into two options.
+
+**`SpeedDialFab` composable** (create in `ui/components/SpeedDialFab.kt`):
+
+```kotlin
+@Composable
+fun SpeedDialFab(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onTrackJob: () -> Unit,
+    onEvaluateFit: () -> Unit,
+    modifier: Modifier = Modifier
+)
+```
+
+When collapsed: shows a single `+` FAB (identical to the current one).
+When expanded:
+- Background scrim (`Box` with `Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { onToggle() }`) behind the options
+- Two `SmallFloatingActionButton` items stacked above the main FAB, each with a label:
+  - `Icons.Filled.Analytics` + "Evaluate Fit" → `onEvaluateFit()`
+  - `Icons.Filled.Add` + "Track Job" → `onTrackJob()`
+- Main FAB shows `Icons.Filled.Close` when expanded, `Icons.Filled.Add` when collapsed
+- Use `AnimatedVisibility(enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut())` on the mini-FABs
+
+**Each mini-FAB row:**
+```kotlin
+Row(verticalAlignment = Alignment.CenterVertically) {
+    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 4.dp) {
+        Text(label, modifier = Modifier.padding(horizontal=10.dp, vertical=4.dp))
+    }
+    Spacer(Modifier.width(12.dp))
+    SmallFloatingActionButton(onClick = action) { Icon(icon, null) }
+}
+```
+
+Replace the existing `floatingActionButton` in `DashboardScreen`'s `Scaffold` with:
+```kotlin
+SpeedDialFab(
+    expanded = speedDialExpanded,
+    onToggle = { speedDialExpanded = !speedDialExpanded },
+    onTrackJob = { speedDialExpanded = false; onAddJobClick() },
+    onEvaluateFit = { speedDialExpanded = false; onEvaluateFitClick() }
+)
+```
+
+Add `onEvaluateFitClick: () -> Unit = {}` parameter to `DashboardScreen`.
+
+---
+
+### 15.3 Navigation Wiring
+
+**Add to `Screen.kt`:**
+```kotlin
+object EvaluateJob : Screen("evaluate_job")
+```
+
+**Add to `AppNavigation.kt`:**
+```kotlin
+composable(Screen.EvaluateJob.route) {
+    EvaluateJobScreen(
+        onBack = { navController.popBackStack() },
+        onNavigateToJobDetail = { jobId ->
+            navController.navigate(Screen.JobDetail.createRoute(jobId)) {
+                popUpTo(Screen.EvaluateJob.route) { inclusive = true }
+            }
+        }
+    )
+}
+```
+
+**Update Dashboard composable in `AppNavigation.kt`:**
+```kotlin
+composable(Screen.Dashboard.route) {
+    DashboardScreen(
+        onJobClick = { jobId -> navController.navigate(Screen.JobDetail.createRoute(jobId)) },
+        onAddJobClick = { navController.navigate(Screen.AddJob.route) },
+        onEvaluateFitClick = { navController.navigate(Screen.EvaluateJob.route) }
+    )
+}
+```
+
+Add `Screen.EvaluateJob.route` to `screensWithoutBottomNav`.
+
+---
+
+### 15.4 Profile Hint (Optional)
+
+If the user has no resume uploaded (`resumeText` is blank), evaluating fit is meaningless — `EvaluateFitUseCase` will score against an empty resume. Show a non-blocking banner at the top of `EvaluateJobScreen` when `userProfileDataStore.userProfileFlow.first().resumeText.isBlank()`:
+
+```kotlin
+if (resumeEmpty) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+        Row(Modifier.padding(12.dp)) {
+            Icon(Icons.Filled.Warning, null, tint = MaterialTheme.colorScheme.onErrorContainer)
+            Spacer(Modifier.width(8.dp))
+            Text("Upload your resume in Profile for accurate scoring",
+                 style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.onErrorContainer)
+        }
+    }
+}
+```
+
+---
+
+### Phase 15 Testing Requirements
+
+**Unit tests** (`test/`):
+
+- `EvaluateJobViewModelTest`:
+  - `analyzeFromPaste(text)` calls `EvaluateFitUseCase` with resume text and supplied text; transitions `Idle → Analyzing → Result`
+  - `analyzeFromUrl(url)` calls `FetchUrlUseCase` then `EvaluateFitUseCase` in sequence
+  - `analyzeFromPaste` with blank text stays `Idle` (guard check)
+  - On `ClaudeResult.Error`, state transitions to `Error`
+  - `saveJob("Google", "SWE")` calls `SaveJobApplicationUseCase` with `fitScore` from result, `jobDescription` from result, `status = APPLIED`; transitions to `Saved(jobId)`
+  - `saveJob("", "")` still saves with placeholder names "Unknown Company" / "Unknown Role"
+  - `reset()` returns to `Idle` from any state
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest jacocoCoverageVerification
+./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Phase 15 MVP Checkpoint
+
+- [ ] Dashboard FAB expands into two options: "Track Job" and "Evaluate Fit"
+- [ ] Tapping "Evaluate Fit" opens `EvaluateJobScreen` (no pre-saved job required)
+- [ ] All three input methods work: paste, URL fetch, screenshot OCR
+- [ ] Score ring animates in; pros/cons/missing skills are collapsible
+- [ ] "Save & Track" creates a job with the score pre-filled and navigates to Job Detail
+- [ ] Job Detail for the saved job pre-fills the job description
+- [ ] "Start Over" resets the screen to input state
+- [ ] No-resume banner shows when resume is empty
+- [ ] All Phase 1–14 checkpoints still pass
+
+---
+
 ## Cross-Cutting Rules (apply in every phase)
 
 1. **Never log sensitive data:** `resumeText`, email bodies, OAuth tokens, or API keys must never appear in `Log.*` calls.

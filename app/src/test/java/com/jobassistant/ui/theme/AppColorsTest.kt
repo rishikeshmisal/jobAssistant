@@ -36,7 +36,7 @@ class AppColorsTest {
     }
 
     @Test
-    fun yellowTheme_hasExpectedSeedColor() {
-        assertEquals(Color(0xFFF9A825), ThemeSeedColors[AppTheme.YELLOW])
+    fun purpleTheme_hasExpectedSeedColor() {
+        assertEquals(Color(0xFF6A1B9A), ThemeSeedColors[AppTheme.PURPLE])
     }
 }

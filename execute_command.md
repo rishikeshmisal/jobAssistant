@@ -68,3 +68,72 @@ Read .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md
 
 After all files are written, write the Compose UI tests listed in the "Phase 10 Testing Requirements" section, run ./gradlew testDebugUnitTest jacocoCoverageVerification and ./gradlew connectedDebugAndroidTest, and confirm all Phase 10 MVP Checkpoints are green before stopping. Do not introduce any regressions — all Phase 1–9 MVP checkpoints must still pass.
 ```
+
+## Phase 11 — Insights Screen: Tabbed Layout
+```
+Read .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md Phase 11 in full (sections 11.1–11.6) before writing a single line of code. Implement each section in order:
+
+11.1 — Add userProfile: UserProfile = UserProfile() to InsightsUiState.
+11.2 — Update InsightsViewModel.observeData() to use a 3-way combine with userProfileDataStore.userProfileFlow, emitting userProfile into uiState.
+11.3 — Rewrite InsightsScreen.kt: replace the single scrollable Column with a PrimaryTabRow (Career Profile / New Job / Applied Jobs) + when(selectedTab) content switcher.
+11.4 — Implement CareerProfileTab: user header (avatar + name), resume summary card (word count + 400-char preview), career interests card (goal text + keyword chips + salary), AI career summary card.
+11.5 — Implement NewJobTab: empty state with Generate button when no insights; identified gaps chips, lightbulb action cards, market feedback card, refresh button with loading indicator when insights exist.
+11.6 — Implement AppliedJobsTab: empty state when totalApplied==0; StatsCardsRow + FunnelRow + RateSection + top companies card when data exists.
+
+After all files are written, write the InsightsViewModelTabTest unit test, run ./gradlew testDebugUnitTest jacocoCoverageVerification, then build and install with ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk, and confirm all Phase 11 MVP Checkpoints are green before stopping.
+```
+
+## Phase 12 — Decouple "Add Job" from "Analyze Fit"
+```
+Read .claude/skills/android-hilt-patterns/SKILL.md and .claude/skills/room-sqlcipher-migrations/SKILL.md first. Then read execution.md Phase 12 in full (sections 12.1–12.5) before writing a single line of code. Implement each section in order:
+
+12.1 — Simplify AddJobScreen to a 4-field tracking form (Company, Role, Location, Salary). Remove all AI/analysis content. Change AddJobViewModel states to Idle/Saving/Saved(jobId)/Duplicate/Error. On Saved, navigate to the new job's JobDetailScreen. Keep DuplicateJobDialog.
+12.2 — Update FitScoreRing to show "?" instead of "N/A" when score is null.
+12.3 — Add a "Job Description" section to JobDetailScreen with a TabRow (Paste Text / Paste URL / Screenshot), the 4000-char counter, and an "Analyze Fit" button. Move analyzeFromPaste, analyzeFromUrl, analyzeFromScreenshot into JobDetailViewModel. Remove the "Re-analyze Fit" button from BottomAppBar (analysis is now in the description section). Auto-save the fit score to Room on every successful analysis.
+12.4 — Add jobDescription: String = "" to JobApplication domain model and JobApplicationEntity. Write MIGRATION_1_2 (ALTER TABLE ADD COLUMN jobDescription TEXT NOT NULL DEFAULT ''). Bump @Database version to 2. Register migration in DatabaseModule. Update mappers. Use the room-sqlcipher-migrations skill for correct migration wiring.
+12.5 — Remove InputMode enum and OcrProcessor/FetchUrlUseCase injections from AddJobViewModel. Delete obsolete OCR-path test cases in AddJobViewModelOcrTest and rewrite them targeting JobDetailViewModel.
+
+After all files are written, write the unit tests listed in Phase 12 Testing Requirements, run ./gradlew testDebugUnitTest jacocoCoverageVerification and ./gradlew connectedDebugAndroidTest, and confirm all Phase 12 MVP Checkpoints are green before stopping. Do not introduce any regressions — all Phase 1–11 checkpoints must still pass.
+```
+
+## Phase 13 — CSV Import with AI Column Mapping
+```
+Read .claude/skills/android-hilt-patterns/SKILL.md and .claude/skills/claude-api-tools-use/SKILL.md first. Then read execution.md Phase 13 in full (sections 13.1–13.8) before writing a single line of code. Implement each section in order:
+
+13.1 — Create domain/model/CsvColumnMapping.kt and domain/model/CsvImportPreview.kt exactly as specified.
+13.2 — Create util/CsvParser.kt: a pure Kotlin object that parses CSV text into ParsedCsv(headers, rows). Handle quoted fields, escaped quotes, trailing newlines. No Android dependencies — must be JVM-testable. Write CsvParserTest immediately after.
+13.3 — Add mapCsvColumns(headers, sampleRows) to ClaudeRepository interface. Implement in GeminiRepository using the exact prompt template in section 13.3. Parse the JSON response into CsvColumnMapping. Throw ClaudeParseException if column_mappings or status_mappings keys are missing.
+13.4 — Create domain/usecase/ImportCsvUseCase.kt with preview() and commit() methods. preview() orchestrates CsvParser → mapCsvColumns → row mapping → CsvImportPreview. commit() batch-inserts via SaveJobApplicationUseCase. Use all 7 date fallback patterns. Write ImportCsvUseCaseTest immediately after.
+13.5 — Create ui/screens/csv/CsvImportViewModel.kt with the sealed CsvImportUiState and the three methods (onCsvPicked, confirmImport, reset). Write CsvImportViewModelTest immediately after.
+13.6 — Create ui/screens/csv/CsvImportScreen.kt with all 6 state renderings (Idle, ReadingFile, MappingColumns, Preview, Importing, Done, Error) exactly as described. Use CompanyAvatar, StatusChip, RelativeTimeText from ui/components.
+13.7 — Add Screen.CsvImport to Screen.kt. Add the composable route to AppNavigation.kt. Add "Import from CSV" OutlinedButton to ProfileScreen's Data section card; pass navController or use a callback.
+
+After all files are written, run ./gradlew testDebugUnitTest jacocoCoverageVerification, then build and install with ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk, and confirm all Phase 13 MVP Checkpoints are green before stopping. Do not introduce any regressions — all Phase 1–12 checkpoints must still pass.
+```
+
+## Phase 15 — Quick Evaluate: Frictionless Job Fit Scoring
+```
+Read .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md Phase 15 in full (sections 15.1–15.4) before writing a single line of code. Implement each section in order:
+
+15.1 — Create ui/screens/evaluate/EvaluateJobViewModel.kt with the sealed EvaluateJobUiState (Idle, Analyzing, Result, Saved, Error) and five methods (analyzeFromPaste, analyzeFromUrl, analyzeFromScreenshot, saveJob, reset). Inject EvaluateFitUseCase, FetchUrlUseCase, OcrProcessor, UserProfileDataStore, SaveJobApplicationUseCase. Create ui/screens/evaluate/EvaluateJobScreen.kt with all five state renderings: Idle/input (TabRow with Paste/URL/Screenshot), Analyzing (LinearProgressIndicator), Result (FitScoreRing + expandable sections + save form), Saved (CheckCircle + navigation), Error (retry). Use FitScoreRing, CompanyAvatar components from ui/components.
+15.2 — Create ui/components/SpeedDialFab.kt: a SpeedDial composable that expands into two labeled SmallFloatingActionButton rows with AnimatedVisibility (fadeIn+scaleIn). Add speedDialExpanded: Boolean state and onEvaluateFitClick: () -> Unit parameter to DashboardScreen. Replace the existing FloatingActionButton in DashboardScreen with SpeedDialFab.
+15.3 — Add Screen.EvaluateJob to Screen.kt. Add Screen.EvaluateJob.route to screensWithoutBottomNav in AppNavigation.kt. Add composable route for EvaluateJobScreen. Add onEvaluateFitClick callback to the Dashboard composable in AppNavigation, wiring it to navController.navigate(Screen.EvaluateJob.route).
+15.4 — Add no-resume banner to EvaluateJobScreen: collect userProfile from EvaluateJobViewModel; show errorContainer Card with warning icon when resumeText is blank.
+
+After all files are written, write EvaluateJobViewModelTest (all 7 test cases listed in Phase 15 Testing Requirements), run ./gradlew testDebugUnitTest jacocoCoverageVerification, then build and install with ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk, and confirm all Phase 15 MVP Checkpoints are green before stopping. Do not introduce any regressions — all Phase 1–14 checkpoints must still pass.
+```
+
+## Phase 14 — Redesign ApplicationStatus Lifecycle
+```
+Read .claude/skills/room-sqlcipher-migrations/SKILL.md and .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md Phase 14 in full (sections 14.1–14.7) before writing a single line of code. Implement each section in order:
+
+14.1 — Replace ApplicationStatus.kt with the 10-value enum (INTERESTED, APPLIED, SCREENING, INTERVIEWING, ASSESSMENT, OFFER, ACCEPTED, REJECTED, WITHDRAWN, NO_RESPONSE). Add the displayName() extension function, and define ACTIVE_PIPELINE, TERMINAL_STATUSES, and ALL_STATUSES lists in the same file.
+14.2 — Add MIGRATION_2_3 to AppDatabase.kt (UPDATE SAVED→INTERESTED, OFFERED→OFFER). Bump @Database version to 3. Register MIGRATION_1_2 and MIGRATION_2_3 in create(). Update JobApplicationMigrationTest to also verify MIGRATION_2_3.
+14.3 — Update StatusChip.kt: replace the 5-value when block with all 10 statuses using the color pairs from the table in section 14.4. Update StatusChipColorTest.
+14.4 — Update DashboardScreen.kt: replace STATUS_ORDER with ACTIVE_PIPELINE + TERMINAL_STATUSES. Add a "Closed" section divider before terminal Kanban columns. Update all local displayName() calls to use the extension.
+14.5 — Update JobDetailScreen.kt: StatusDropdown lists ALL_STATUSES. Remove local displayName().
+14.6 — Update InsightsViewModel.kt: redefine applied/interviews/offers/rejections stats per the new logic in section 14.5. Add withdrawn and noResponse fields to InsightsStats. Update InsightsScreen to show 6 stat cards.
+14.7 — Update GmailSyncWorker.kt: map INTERVIEW action_type to ApplicationStatus.SCREENING. Update GeminiRepository.mapCsvColumns() prompt to list all 10 new enum names. Remove all remaining references to old enum values (SAVED, OFFERED) from tests and sources.
+
+After all files are written, write ApplicationStatusTest, run ./gradlew testDebugUnitTest jacocoCoverageVerification and ./gradlew connectedDebugAndroidTest, then install and confirm all Phase 14 MVP Checkpoints are green. Do not introduce any regressions — all Phase 1–13 checkpoints must still pass.
+```
