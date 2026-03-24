@@ -3,6 +3,11 @@ package com.jobassistant.ui.screens.detail
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,20 +18,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -34,17 +42,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jobassistant.data.remote.model.FitAnalysis
+
+private val INPUT_TAB_LABELS = listOf("Paste Text", "Paste URL", "Screenshot")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,7 +76,7 @@ fun AddJobScreen(
     var location by remember { mutableStateOf("") }
     var salaryRange by remember { mutableStateOf("") }
     var jobUrl by remember { mutableStateOf("") }
-    var inputMode by remember { mutableStateOf(InputMode.PASTE) }
+    var tabIndex by remember { mutableIntStateOf(0) }   // 0=Paste, 1=URL, 2=Screenshot
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -75,9 +87,9 @@ fun AddJobScreen(
     // Auto-switch to Screenshot tab and start OCR when launched via share intent
     LaunchedEffect(initialImageUri) {
         initialImageUri?.let { uri ->
-            inputMode = InputMode.SCREENSHOT
+            tabIndex = 2
             viewModel.processScreenshot(uri, context)
-            onImageConsumed()  // clear the URI in MainActivity so it isn't re-processed
+            onImageConsumed()
         }
     }
 
@@ -146,37 +158,41 @@ fun AddJobScreen(
                 singleLine = true
             )
 
-            // Input mode toggle
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = inputMode == InputMode.PASTE,
-                    onClick = { inputMode = InputMode.PASTE },
-                    label = { Text("Paste Text") },
-                    modifier = Modifier.testTag("mode_paste_chip")
-                )
-                FilterChip(
-                    selected = inputMode == InputMode.URL,
-                    onClick = { inputMode = InputMode.URL },
-                    label = { Text("Paste URL") },
-                    modifier = Modifier.testTag("mode_url_chip")
-                )
-                FilterChip(
-                    selected = inputMode == InputMode.SCREENSHOT,
-                    onClick = { inputMode = InputMode.SCREENSHOT },
-                    label = { Text("Screenshot") },
-                    modifier = Modifier.testTag("mode_screenshot_chip")
-                )
+            // ── Input mode tabs with rounded indicator ────────────────────────
+            TabRow(
+                selectedTabIndex = tabIndex,
+                indicator = { tabPositions ->
+                    if (tabIndex < tabPositions.size) {
+                        Box(
+                            modifier = Modifier
+                                .tabIndicatorOffset(tabPositions[tabIndex])
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            ) {
+                INPUT_TAB_LABELS.forEachIndexed { index, label ->
+                    Tab(
+                        selected = tabIndex == index,
+                        onClick = { tabIndex = index },
+                        text = { Text(label) },
+                        modifier = Modifier.testTag("tab_${label.lowercase().replace(" ", "_")}")
+                    )
+                }
             }
 
-            when (inputMode) {
-                InputMode.PASTE -> {
+            when (tabIndex) {
+                0 -> { // Paste
                     OutlinedTextField(
                         value = jobDescription,
-                        onValueChange = { jobDescription = it },
+                        onValueChange = { if (it.length <= 4000) jobDescription = it },
                         label = { Text("Job Description") },
                         modifier = Modifier.fillMaxWidth().testTag("job_description_field"),
                         minLines = 5,
-                        maxLines = 10
+                        maxLines = 10,
+                        supportingText = { Text("${jobDescription.length} / 4000") }
                     )
                     Button(
                         onClick = { viewModel.analyzeFit(jobDescription) },
@@ -187,7 +203,7 @@ fun AddJobScreen(
                     }
                 }
 
-                InputMode.URL -> {
+                1 -> { // URL
                     OutlinedTextField(
                         value = jobUrl,
                         onValueChange = { jobUrl = it },
@@ -204,7 +220,7 @@ fun AddJobScreen(
                     }
                 }
 
-                InputMode.SCREENSHOT -> {
+                2 -> { // Screenshot
                     Button(
                         onClick = { imagePickerLauncher.launch("image/*") },
                         modifier = Modifier.fillMaxWidth().testTag("pick_screenshot_button")
@@ -232,24 +248,32 @@ fun AddJobScreen(
                 }
             }
 
-            when (val state = uiState) {
-                is AddJobUiState.Analyzing -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().testTag("loading_indicator"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
+            // ── Loading state ─────────────────────────────────────────────────
+            if (uiState is AddJobUiState.Analyzing) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().testTag("loading_indicator"),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(6.dp))
+                    Text("Analyzing fit…", style = MaterialTheme.typography.bodySmall)
                 }
+            }
 
-                is AddJobUiState.FitResult -> {
+            // ── Score reveal with animation ───────────────────────────────────
+            AnimatedVisibility(
+                visible = uiState is AddJobUiState.FitResult,
+                enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.85f)
+            ) {
+                if (uiState is AddJobUiState.FitResult) {
+                    val state = uiState as AddJobUiState.FitResult
                     FitResultSection(
                         analysis = state.analysis,
                         onSave = {
-                            val description = when (inputMode) {
-                                InputMode.PASTE -> jobDescription
-                                InputMode.URL -> jobUrl
-                                InputMode.SCREENSHOT -> ocrText
+                            val description = when (tabIndex) {
+                                0 -> jobDescription
+                                1 -> jobUrl
+                                else -> ocrText
                             }
                             viewModel.saveJob(
                                 companyName = companyName,
@@ -262,7 +286,9 @@ fun AddJobScreen(
                         }
                     )
                 }
+            }
 
+            when (val state = uiState) {
                 is AddJobUiState.Error -> {
                     Text(
                         text = "Error: ${state.message}",
@@ -270,13 +296,11 @@ fun AddJobScreen(
                         modifier = Modifier.testTag("error_text")
                     )
                 }
-
                 is AddJobUiState.Saving -> {
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
                 }
-
                 is AddJobUiState.Saved -> {
                     Text(
                         text = "Job saved successfully!",
@@ -284,17 +308,13 @@ fun AddJobScreen(
                         modifier = Modifier.testTag("saved_text")
                     )
                 }
-
-                AddJobUiState.Idle -> Unit
-                is AddJobUiState.Duplicate -> Unit // Handled by dialog above
+                else -> Unit
             }
 
             Spacer(Modifier.height(24.dp))
         }
     }
 }
-
-private enum class InputMode { PASTE, URL, SCREENSHOT }
 
 @Composable
 fun DuplicateJobDialog(
@@ -376,16 +396,14 @@ private fun FitResultSection(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onSave,
-                modifier = Modifier.weight(1f).testTag("save_job_button"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Text("Save Job")
-            }
+        Button(
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth().testTag("save_job_button"),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
+        ) {
+            Text("Save Job")
         }
     }
 }

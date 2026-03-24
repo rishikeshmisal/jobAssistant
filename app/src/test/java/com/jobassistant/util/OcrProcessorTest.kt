@@ -50,7 +50,7 @@ class OcrProcessorTest {
         val fakeText = mockk<Text>()
 
         every { InputImage.fromBitmap(bitmap, 0) } returns fakeImage
-        every { TextRecognition.getClient() } returns fakeRecognizer
+        every { TextRecognition.getClient(any()) } returns fakeRecognizer
         every { fakeRecognizer.process(fakeImage) } returns fakeTask
         every { fakeText.text } returns "Software Engineer at ACME Corp"
         every { fakeTask.addOnSuccessListener(any<OnSuccessListener<Text>>()) } answers {
@@ -74,7 +74,7 @@ class OcrProcessorTest {
         val fakeText = mockk<Text>()
 
         every { InputImage.fromBitmap(bitmap, 0) } returns fakeImage
-        every { TextRecognition.getClient() } returns fakeRecognizer
+        every { TextRecognition.getClient(any()) } returns fakeRecognizer
         every { fakeRecognizer.process(fakeImage) } returns fakeTask
         every { fakeText.text } returns ""
         every { fakeTask.addOnSuccessListener(any<OnSuccessListener<Text>>()) } answers {
