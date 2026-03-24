@@ -1613,6 +1613,441 @@ open app/build/reports/jacoco/jacocoTestReport/html/index.html
 
 ---
 
+## Phase 10 — UI/UX Overhaul
+
+> **MVP goal:** The app looks and feels polished enough to show to a recruiter. Every screen uses edge-to-edge layout, a consistent 4dp spacing grid, proper system-inset handling, smooth transitions, and the upgraded shared component library. No functional regressions from Phases 1–9.
+
+---
+
+### 10.1 Edge-to-Edge Layout
+
+In `ui/MainActivity.kt`:
+- Call `enableEdgeToEdge()` (from `androidx.activity:activity`) immediately before `setContent { … }`.
+- Remove the outer `Column { ThemeSelector(…); AppNavigation(…) }` wrapper — the theme selector is being relocated to the Profile screen in step 10.3.
+- Replace it with a direct call to `AppNavigation(…)` inside `setContent { JobAssistantTheme(…) { … } }`.
+
+In `ui/navigation/AppNavigation.kt`:
+- Pass `WindowInsets.systemBars` or use `Scaffold`-level `contentWindowInsets` so every screen handles status-bar and navigation-bar padding automatically.
+- The bottom navigation bar must add `navigationBarsPadding()` so it sits above the gesture nav bar.
+
+In every screen's `Scaffold`:
+- Set `contentWindowInsets = ScaffoldDefaults.contentWindowInsets` (the default) — do **not** manually add `statusBarsPadding()` in screen bodies; let the `Scaffold` handle it.
+
+---
+
+### 10.2 Shared UI Component Library
+
+Create the following new components in `ui/components/`. Each is a pure, stateless `@Composable` function with no ViewModel dependency.
+
+#### `CompanyAvatar.kt`
+A 40×40dp circle showing the first letter of the company name in a tonal container:
+```kotlin
+@Composable
+fun CompanyAvatar(companyName: String, modifier: Modifier = Modifier) {
+    val letter = companyName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    // Deterministically pick a container color from the theme palette based on letter index
+    // so the same company always gets the same color without storing it.
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = letter,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+```
+
+#### `FitScoreRing.kt`
+A Canvas-drawn circular arc indicator that animates from 0 to the target score:
+```kotlin
+@Composable
+fun FitScoreRing(
+    score: Int?,           // null = not yet analyzed
+    size: Dp = 72.dp,
+    strokeWidth: Dp = 7.dp,
+    modifier: Modifier = Modifier
+) {
+    // Animate the sweep angle from 0 to (score/100 * 270) degrees using animateFloatAsState
+    // Draw a background track arc (270° sweep, starting at 135°, grey tint)
+    // Draw the filled arc on top using fitScoreColor(score) — same color logic as Phase 6
+    // Draw the score as a centered Text inside the ring; "N/A" if score == null
+}
+```
+The arc spans 270° (135° start, sweeping clockwise) so it looks like a gauge.
+
+#### `RelativeTimeText.kt`
+Formats a nullable `Long` epoch-millis timestamp as a human-readable relative string:
+- < 1 hour → "just now"
+- < 24 hours → "X hours ago"
+- < 7 days → "X days ago"
+- ≥ 7 days → formatted as "MMM d" (e.g. "Mar 15")
+
+```kotlin
+@Composable
+fun RelativeTimeText(epochMillis: Long?, style: TextStyle, color: Color, modifier: Modifier = Modifier)
+```
+
+#### `SectionHeader.kt`
+A styled section divider used consistently across Profile and Insights:
+```kotlin
+@Composable
+fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        letterSpacing = 1.2.sp,
+        modifier = modifier.padding(bottom = 8.dp)
+    )
+}
+```
+
+#### `StatusChip.kt`
+A colored `SuggestionChip`-style component that maps each `ApplicationStatus` to a distinct tonal color pair (container + label):
+- SAVED → surfaceVariant
+- APPLIED → primaryContainer
+- INTERVIEWING → tertiaryContainer
+- OFFERED → `Color(0xFF43A047)` tinted container
+- REJECTED → errorContainer
+
+```kotlin
+@Composable
+fun StatusChip(status: ApplicationStatus, modifier: Modifier = Modifier)
+```
+
+---
+
+### 10.3 Theme Selector — Move to Profile Screen
+
+**Remove** from `MainActivity`:
+- Delete the `ThemeSelector` row that wraps `AppNavigation`. The top-level layout is now just `AppNavigation` inside `JobAssistantTheme`.
+
+**Add** to `ui/screens/profile/ProfileScreen.kt`:
+- Add a new section at the top of the Profile screen: **"Appearance"**, above the Resume section.
+- Display the 4 theme options as a horizontal `Row` of 40×40dp filled `Box` circles, each using its seed color (`ThemeSeedColors[theme]`). The active theme gets a white checkmark icon `Icons.Filled.Check` centered inside the circle.
+- Wire it to `viewModel.setTheme(theme)` (add `fun setTheme(theme: AppTheme)` to `ProfileViewModel` — delegates to `userProfileDataStore.update { copy(selectedTheme = theme) }`).
+- The `MainViewModel.uiState.selectedTheme` still drives `JobAssistantTheme` — the Profile screen only needs to call a `setTheme` callback passed down from `AppNavigation` or collected from `MainViewModel` via a shared `hiltViewModel()` call in `ProfileScreen`.
+
+Update `ui/navigation/AppNavigation.kt`:
+- Pass `onThemeSelected = mainViewModel::setTheme` into `ProfileScreen` (or let `ProfileScreen` inject `MainViewModel` directly using `hiltViewModel<MainViewModel>()`).
+
+---
+
+### 10.4 Dashboard — Hero Stats Strip
+
+In `ui/screens/dashboard/DashboardScreen.kt`, add a **`HeroStatsStrip`** composable rendered directly below the `TopAppBar` and above the Kanban/List content, inside the `Scaffold` body (not in `topBar`):
+
+```kotlin
+@Composable
+private fun HeroStatsStrip(jobsByStatus: Map<ApplicationStatus, List<JobApplication>>) {
+    // A horizontally-scrolling Row of mini stat cards (no scroll indicator needed)
+    // Show: Total, Saved, Applied, Interviewing, Offered, Rejected — each as a compact
+    // Card (60dp tall) with a large bold number and a small label below it.
+    // "Total" card uses primaryContainer, others use their StatusChip colors.
+}
+```
+
+This strip is always visible in both Kanban and List modes.
+
+---
+
+### 10.5 Dashboard — Upgraded Job Cards
+
+Update `JobCard` in `DashboardScreen.kt`:
+
+**Before** (current):
+- Company name text
+- Role title text
+- FitScoreBadge (text badge) + date text
+
+**After**:
+```
+Row {
+    CompanyAvatar(companyName)        ← new: 40×40dp circle avatar
+    Column {
+        Text(companyName, titleSmall, bold)
+        Text(roleTitle, bodySmall, onSurfaceVariant)
+        Row {
+            StatusChip(job.status)    ← new: replaces the implicit status from column header
+            Spacer(weight=1f)
+            RelativeTimeText(appliedDate)  ← new: "2 days ago" instead of "Mar 15"
+        }
+    }
+    FitScoreRing(score, size=48.dp)   ← new: ring replaces text badge
+}
+```
+
+Update `ListJobRow` similarly — lead with `CompanyAvatar` on the left, trail with a small `FitScoreRing(size=40.dp)`.
+
+---
+
+### 10.6 Dashboard — Status Change Bottom Sheet Upgrade
+
+Update `StatusChangeSheet` to use icon-labelled rows instead of plain `TextButton`s:
+
+```kotlin
+STATUS_ORDER.forEach { status ->
+    val isCurrentStatus = status == job.status
+    ListItem(
+        headlineContent = { Text(status.displayName()) },
+        leadingContent = { StatusChip(status) },
+        trailingContent = {
+            if (isCurrentStatus) Icon(Icons.Filled.Check, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary)
+        },
+        modifier = Modifier.clickable { onStatusSelected(status) }
+    )
+}
+```
+Add a `HorizontalDivider()` at the top of the sheet below the drag handle, before listing statuses.
+
+---
+
+### 10.7 Job Detail — Fit Score Ring + Collapsing Sections
+
+In `ui/screens/detail/JobDetailScreen.kt`:
+
+**Score card** — replace the "large score number + colored ring/progress bar" placeholder spec with the real `FitScoreRing`:
+```kotlin
+// Centered in a Card at the top of the detail screen:
+Card(modifier = Modifier.fillMaxWidth()) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+        FitScoreRing(score = job.fitScore, size = 96.dp, strokeWidth = 10.dp)
+        Spacer(Modifier.height(8.dp))
+        Text("Fit Score", style = MaterialTheme.typography.labelMedium)
+    }
+}
+```
+
+**Pros / Cons / Missing Skills** — replace flat text lists with collapsible `AnimatedVisibility` sections:
+```kotlin
+// Each section: a clickable Row header (label + count badge + expand/collapse icon)
+// that toggles AnimatedVisibility { content }
+// Pros: green left-border indicator, each item as a Row with Icons.Filled.CheckCircle
+// Cons: amber left-border indicator, each item as a Row with Icons.Filled.RemoveCircle
+// Missing Skills: blue chip (SuggestionChip) in a FlowRow
+```
+
+**Bottom action bar** — add a `BottomAppBar` (not a floating button) with:
+- Primary action: `Button("Re-analyze Fit")` (full width minus padding)
+- Secondary: `IconButton(Icons.Filled.Delete)` with a confirmation `AlertDialog`
+
+---
+
+### 10.8 Add Job — Animated Score Reveal + Tab Upgrade
+
+In `ui/screens/detail/AddJobScreen.kt`:
+
+**Tab indicator**: Replace the existing tab implementation with `TabRow` using a custom `indicator` that draws a `Box` with `Modifier.tabIndicatorOffset()` using `MaterialTheme.colorScheme.primary` as the fill color with `clip(RoundedCornerShape(topStart=3.dp, topEnd=3.dp))`.
+
+**Character counter** on the job description `OutlinedTextField`:
+```kotlin
+OutlinedTextField(
+    value = jobDescription,
+    onValueChange = { if (it.length <= 4000) jobDescription = it },
+    label = { Text("Job Description") },
+    supportingText = { Text("${jobDescription.length} / 4000") },
+    minLines = 6,
+    maxLines = 12,
+    ...
+)
+```
+
+**Score reveal animation**: Wrap the `FitScoreRing` + pros/cons section in `AnimatedVisibility(visible = fitResult != null, enter = fadeIn() + scaleIn(initialScale = 0.85f))` so the results card grows into view after the API call completes.
+
+**Loading state**: Replace `CircularProgressIndicator` with a `LinearProgressIndicator` spanning the full card width while the API call is in progress, with the text "Analyzing fit…" below it.
+
+---
+
+### 10.9 Profile Screen — Section Cards + Appearance Section
+
+In `ui/screens/profile/ProfileScreen.kt`:
+
+**Wrap each section** in a `Card(modifier = Modifier.fillMaxWidth())` with 16dp internal padding and a `SectionHeader` title:
+- "Appearance" → theme color picker (from 10.3)
+- "Resume" → PDF upload + status
+- "Career Details" → name / goal / keywords / salary fields
+- "AI Career Summary" → goal map card
+- "Data" → export button
+- "API Settings" → API key field
+- "Gmail Integration" → connect/disconnect
+
+**Resume uploaded state**: replace the plain text preview with a styled file card:
+```kotlin
+// When resumeText is not blank:
+Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.PictureAsPdf, contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text("Resume loaded", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text("${profileState.resumeText.length} characters",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f))
+        }
+    }
+}
+```
+
+**Top of screen**: Add a centered `CompanyAvatar`-style avatar for the user's initials (use `fullName`), 56×56dp, above the Appearance section. Show `fullName` as a `titleLarge` below the avatar.
+
+---
+
+### 10.10 Insights Screen — Icon Stats + Funnel Row
+
+In `ui/screens/insights/InsightsScreen.kt`:
+
+**Stat cards**: Add a leading `Icon` to each `StatCard`:
+```kotlin
+// Applied → Icons.Filled.Send
+// Interviews → Icons.Filled.Event
+// Rejected → Icons.Filled.Cancel
+// Offers → Icons.Filled.EmojiEvents
+```
+Each card: icon (24dp, tinted with the card's color) + number + label stacked vertically.
+
+**Funnel visualization**: Add a `FunnelRow` composable between the stats cards and the rates card:
+```kotlin
+// A horizontal Row that shows:  Applied → [arrow icon] → Interviewing → [arrow icon] → Offered
+// Each stage is a Box with a percentage label below it (e.g. "30% interview rate")
+// Use thin connecting arrows (Icons.AutoMirrored.Filled.ArrowForward, 16dp)
+// Container uses MaterialTheme.colorScheme.surfaceVariant, corner radius 8dp
+```
+
+**Recommended actions**: Change from bullet `Text` items to `Card`-wrapped rows with a leading `Icons.Filled.Lightbulb` icon, each action in its own mini card:
+```kotlin
+it.recommendedActions.forEach { action ->
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Lightbulb, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(action, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer)
+        }
+    }
+}
+```
+
+---
+
+### 10.11 Onboarding — Step Indicator + Welcome Illustration
+
+In `ui/screens/onboarding/OnboardingScreen.kt`:
+
+**Step indicator dots**: Below the pager content and above the navigation buttons, add a `Row` of dot indicators:
+```kotlin
+Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    repeat(totalSteps) { index ->
+        val isActive = index == currentStep
+        Box(
+            modifier = Modifier
+                .height(8.dp)
+                .width(if (isActive) 24.dp else 8.dp)   // active dot is pill-shaped
+                .clip(CircleShape)
+                .background(
+                    if (isActive) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                )
+                .animateContentSize()   // smooth width transition
+        )
+    }
+}
+```
+
+**Welcome step illustration**: On Step 1 (Welcome + name input), add a large centered `Icon` using `Icons.Filled.WorkspacePremium` (96dp, tinted `primary`) above the title text. Each step should have a distinct icon:
+- Step 1 (Welcome): `Icons.Filled.WorkspacePremium`
+- Step 2 (Career goal): `Icons.Filled.TrendingUp`
+- Step 3 (Resume upload): `Icons.Filled.UploadFile`
+- Step 4 (Gmail): `Icons.Filled.Email`
+
+**Navigation buttons**: Replace plain `Button("Next")` / `Button("Get Started")` with a `Row` that also shows a back `TextButton` on steps 2+ so users can go back:
+```kotlin
+Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    if (currentStep > 0) TextButton(onClick = { goBack() }) { Text("Back") }
+    else Spacer(Modifier.weight(1f))
+    Button(onClick = { goForward() }) {
+        Text(if (currentStep == lastStep) "Get Started" else "Next")
+    }
+}
+```
+
+---
+
+### 10.12 Global Animations & Transitions
+
+Apply the following consistently where state transitions exist:
+
+1. **Screen transitions in `NavHost`**: Set `enterTransition = fadeIn(tween(200))` and `exitTransition = fadeOut(tween(200))` as defaults in the `NavHost` call in `AppNavigation.kt`.
+
+2. **FitScoreRing animation**: Uses `animateFloatAsState(targetValue = sweepAngle, animationSpec = tween(durationMillis = 800, easing = EaseOutCubic))` for the arc sweep.
+
+3. **Score card reveal** (AddJob): `AnimatedVisibility(enter = fadeIn() + scaleIn(initialScale = 0.85f))` — already specified in 10.8.
+
+4. **Collapsing sections** (Job Detail): `AnimatedVisibility(enter = expandVertically(), exit = shrinkVertically())`.
+
+5. **Kanban card additions**: Use `animateItemPlacement()` modifier on `LazyColumn` items so cards animate when their status changes and they move columns.
+
+6. **Profile section cards**: Wrap the main `Column` scroll content in `AnimatedContent(targetState = profileUiState)` for the loading/result/error state so transitions are smooth.
+
+---
+
+### Phase 10 Testing Requirements
+
+**Coverage target: >80% of all new UI component code.**
+
+**Unit tests** (`test/`):
+
+- `RelativeTimeTextTest`: verify all time brackets: < 1 hour, < 24 hours, < 7 days, ≥ 7 days, and null → "—".
+- `FitScoreRingTest` (logic only, not Canvas): verify the sweep angle calculation from score: `score=0` → `0f`, `score=50` → `135f` (50% of 270°), `score=100` → `270f`, `score=null` → `0f`.
+- `StatusChipColorTest`: verify each `ApplicationStatus` maps to a distinct, non-null container color.
+- `CompanyAvatarLetterTest`: verify first letter extraction handles empty string (`"?"`) and single-char company names.
+
+**Compose UI tests** (`androidTest/`):
+
+- `CompanyAvatarTest`: render `CompanyAvatar("Google")` → verify text "G" is displayed.
+- `FitScoreRingUiTest`: render `FitScoreRing(score = 75)` → verify the text "75" is displayed inside; render with `score = null` → verify "N/A" is displayed.
+- `HeroStatsStripTest`: render `DashboardScreen` with a seeded list of known jobs → verify the strip shows the correct count for each status.
+- `ThemePickerTest`: render `ProfileScreen`; verify 4 colored circles are present in the Appearance section; tap one → verify `MainViewModel.setTheme` is called with the correct `AppTheme`.
+- `OnboardingStepIndicatorTest`: verify step dots render correctly — first dot is pill-shaped (wider) on step 0, second dot becomes pill-shaped on step 1; verify back button is hidden on step 0 and visible on step 1+.
+- `ScoreRevealAnimationTest`: mock `AddJobViewModel` to emit an `Idle` state then a `Result` state; verify the score card composable is not visible before the result and becomes visible after.
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest jacocoCoverageVerification
+./gradlew connectedDebugAndroidTest
+```
+
+### Phase 10 MVP Checkpoint
+
+- [ ] App runs edge-to-edge — status bar icons and gesture bar are visible through the app background
+- [ ] Theme selector is gone from the top bar; color picker appears in Profile → Appearance section; selecting a color immediately re-themes the whole app
+- [ ] Dashboard hero strip shows correct job counts
+- [ ] Job cards show `CompanyAvatar`, `StatusChip`, `RelativeTimeText`, and `FitScoreRing`
+- [ ] Status change bottom sheet shows current status with a checkmark
+- [ ] Job detail fit score ring animates from 0 to the score value on open
+- [ ] Pros/cons/missing-skills sections are expandable and collapsed by default
+- [ ] Add Job score card fades/scales in after analysis completes
+- [ ] Profile screen has grouped section cards and a resume file card
+- [ ] Insights screen shows icon-labelled stat cards and the funnel row
+- [ ] Onboarding shows step dots, back button on step 2+, and a step illustration icon
+- [ ] All screen transitions use fade animation (no jarring cuts)
+- [ ] All unit and Compose UI tests pass; coverage ≥80%
+
+---
+
 ## Cross-Cutting Rules (apply in every phase)
 
 1. **Never log sensitive data:** `resumeText`, email bodies, OAuth tokens, or API keys must never appear in `Log.*` calls.

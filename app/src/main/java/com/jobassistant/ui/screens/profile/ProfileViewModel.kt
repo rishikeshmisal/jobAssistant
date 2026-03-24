@@ -16,6 +16,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.jobassistant.BuildConfig
 import com.jobassistant.data.remote.model.CareerProfile
+import com.jobassistant.domain.model.AppTheme
 import com.jobassistant.data.remote.model.ClaudeResult
 import com.jobassistant.data.repository.GmailTokenManager
 import com.jobassistant.data.repository.UserProfileDataStore
@@ -131,6 +132,12 @@ class ProfileViewModel @Inject constructor(
                 )
             }
             _profileUiState.value = ProfileUiState.Saved
+        }
+    }
+
+    fun setTheme(theme: AppTheme) {
+        viewModelScope.launch {
+            userProfileDataStore.update { copy(selectedTheme = theme) }
         }
     }
 

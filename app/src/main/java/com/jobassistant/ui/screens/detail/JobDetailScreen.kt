@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,11 +54,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import com.jobassistant.ui.components.FitScoreRing
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jobassistant.data.remote.model.ApiErrorType
@@ -82,12 +82,6 @@ private fun ApplicationStatus.displayName() = when (this) {
     ApplicationStatus.INTERVIEWING -> "Interviewing"
     ApplicationStatus.OFFERED -> "Offered"
     ApplicationStatus.REJECTED -> "Rejected"
-}
-
-private fun fitScoreColor(score: Int): Color = when {
-    score < 40 -> Color(0xFFE53935)
-    score <= 70 -> Color(0xFFFB8C00)
-    else -> Color(0xFF43A047)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -135,7 +129,11 @@ fun JobDetailScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
-                },
+                }
+            )
+        },
+        bottomBar = {
+            BottomAppBar(
                 actions = {
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(
@@ -143,6 +141,24 @@ fun JobDetailScreen(
                             contentDescription = "Delete job",
                             tint = MaterialTheme.colorScheme.error
                         )
+                    }
+                },
+                floatingActionButton = {
+                    val retryAt = uiState.retryAvailableAt
+                    val isRateLimited = retryAt != null &&
+                        System.currentTimeMillis() < retryAt
+                    Button(
+                        onClick = { viewModel.reAnalyzeFit() },
+                        enabled = !uiState.isAnalyzing && !isRateLimited
+                    ) {
+                        if (uiState.isAnalyzing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(if (isRateLimited) "Service busy…" else "Re-analyze Fit")
                     }
                 }
             )
@@ -218,6 +234,7 @@ fun JobDetailScreen(
                         onReAnalyze = { viewModel.reAnalyzeFit() },
                         onDismissError = { viewModel.clearError() }
                     )
+
 
                     // Editable fields
                     OutlinedTextField(
@@ -348,7 +365,6 @@ private fun FitScoreCard(
     onReAnalyze: () -> Unit,
     onDismissError: () -> Unit = {}
 ) {
-    val isRateLimited = retryAvailableAt != null && System.currentTimeMillis() < retryAvailableAt
     var prosExpanded by remember { mutableStateOf(false) }
     var consExpanded by remember { mutableStateOf(false) }
     var missingExpanded by remember { mutableStateOf(false) }
@@ -359,66 +375,27 @@ private fun FitScoreCard(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text("Fit Score", style = MaterialTheme.typography.labelMedium)
-                    if (score != null) {
-                        Text(
-                            text = "$score%",
-                            fontSize = 48.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = fitScoreColor(score)
-                        )
-                    } else {
-                        Text(
-                            text = "N/A",
-                            fontSize = 48.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Animated ring replaces the raw number
+            FitScoreRing(score = score, size = 96.dp, strokeWidth = 10.dp)
+            Spacer(Modifier.height(4.dp))
+            Text("Fit Score", style = MaterialTheme.typography.labelMedium)
 
-                OutlinedButton(
-                    onClick = onReAnalyze,
-                    enabled = !isAnalyzing && !isRateLimited
-                ) {
-                    if (isAnalyzing) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text(if (isRateLimited) "Service busy…" else "Re-analyze Fit")
-                }
-            }
-
-            // Typed inline error — shown in-card for known error types
+            // Typed inline error
             val inlineError = when (errorType) {
                 ApiErrorType.AUTH -> "API key invalid — check your key in Settings"
                 ApiErrorType.RATE_LIMIT -> "Service busy — please try again in a minute"
                 else -> null
             }
             if (inlineError != null) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = inlineError,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            if (score != null) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { score / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = fitScoreColor(score),
-                    trackColor = fitScoreColor(score).copy(alpha = 0.2f),
-                    strokeCap = StrokeCap.Round
                 )
             }
 

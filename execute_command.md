@@ -48,3 +48,23 @@ Read .claude/skills/claude-api-tool-use/SKILL.md and .claude/skills/android-hilt
 ```
 Read .claude/skills/claude-api-tool-use/SKILL.md, .claude/skills/android-hilt-patterns/SKILL.md, and .claude/skills/room-sqlcipher-migrations/SKILL.md first. Then read execution.md and implement Phase 9 in full. Follow every step in sections 9.1–9.4 exactly. After all files are written, write the unit tests listed in the "Phase 9 Testing Requirements" section, run ./gradlew assembleRelease, ./gradlew testReleaseUnitTest jacocoCoverageVerification, and ./gradlew connectedAndroidTest, then generate the coverage report with ./gradlew jacocoTestReport, and confirm all Phase 9 Final Verification items are green before stopping.
 ```
+
+## Phase 10 — UI/UX Overhaul
+```
+Read .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md Phase 10 in full (sections 10.1–10.12) before writing a single line of code. Implement each section in order:
+
+10.1 — Enable enableEdgeToEdge() in MainActivity, remove the ThemeSelector wrapper column, pass window insets through Scaffold.
+10.2 — Create ui/components/CompanyAvatar.kt, FitScoreRing.kt, RelativeTimeText.kt, SectionHeader.kt, and StatusChip.kt exactly as specified. Write unit tests for RelativeTimeText, FitScoreRing sweep calculation, StatusChip colors, and CompanyAvatar letter extraction before moving on.
+10.3 — Remove ThemeSelector from MainActivity layout. Add the Appearance section (4 color-circle picker) to ProfileScreen. Add setTheme() to ProfileViewModel. Verify theme still persists across restarts.
+10.4 — Add HeroStatsStrip to DashboardScreen below the TopAppBar.
+10.5 — Update JobCard and ListJobRow to use CompanyAvatar + StatusChip + RelativeTimeText + FitScoreRing.
+10.6 — Upgrade StatusChangeSheet to use ListItem rows with current-status checkmark.
+10.7 — Update JobDetailScreen: replace score display with FitScoreRing(96dp), make pros/cons/missing-skills sections collapsible with AnimatedVisibility, add BottomAppBar with Re-analyze and Delete actions.
+10.8 — Update AddJobScreen: rounded tab indicator, 4000-char counter on job description field, AnimatedVisibility score reveal, LinearProgressIndicator loading state.
+10.9 — Update ProfileScreen: wrap each section in a Card with SectionHeader, add user avatar + name at top, add resume file card.
+10.10 — Update InsightsScreen: add icons to StatCards, add FunnelRow, upgrade recommended actions to individual tinted cards.
+10.11 — Update OnboardingScreen: add step dot indicator with animated pill, add step illustration icons, add back button on steps 2+.
+10.12 — Add fade transitions to NavHost, animateItemPlacement() on Kanban LazyColumns.
+
+After all files are written, write the Compose UI tests listed in the "Phase 10 Testing Requirements" section, run ./gradlew testDebugUnitTest jacocoCoverageVerification and ./gradlew connectedDebugAndroidTest, and confirm all Phase 10 MVP Checkpoints are green before stopping. Do not introduce any regressions — all Phase 1–9 MVP checkpoints must still pass.
+```

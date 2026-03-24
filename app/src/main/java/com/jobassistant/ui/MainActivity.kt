@@ -2,18 +2,17 @@ package com.jobassistant.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.jobassistant.ui.components.ThemeSelector
 import com.jobassistant.ui.navigation.AppNavigation
 import com.jobassistant.ui.theme.JobAssistantTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -30,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private var sharedImageUri by mutableStateOf<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // Handle share intent delivered at launch time
         sharedImageUri = extractSharedImageUri(intent)
@@ -38,17 +38,11 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
 
             JobAssistantTheme(appTheme = uiState.selectedTheme) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    ThemeSelector(
-                        selectedTheme = uiState.selectedTheme,
-                        onThemeSelected = viewModel::setTheme
-                    )
-                    AppNavigation(
-                        isOnboardingComplete = uiState.isOnboardingComplete,
-                        sharedImageUri = sharedImageUri,
-                        onSharedImageConsumed = { sharedImageUri = null }
-                    )
-                }
+                AppNavigation(
+                    isOnboardingComplete = uiState.isOnboardingComplete,
+                    sharedImageUri = sharedImageUri,
+                    onSharedImageConsumed = { sharedImageUri = null }
+                )
             }
         }
     }
@@ -68,7 +62,11 @@ class MainActivity : ComponentActivity() {
     private fun extractSharedImageUri(intent: Intent?): Uri? {
         if (intent?.action != Intent.ACTION_SEND) return null
         if (!intent.type.orEmpty().startsWith("image/")) return null
-        @Suppress("DEPRECATION")
-        return intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
     }
 }

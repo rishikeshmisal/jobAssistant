@@ -23,7 +23,7 @@ class GeminiRepository @Inject constructor(
         val apiKey = userProfileDataStore.userApiKey.firstOrNull()
             ?.takeIf { it.isNotBlank() } ?: BuildConfig.GEMINI_API_KEY
         return GenerativeModel(
-            modelName = "gemini-3.1-pro-preview",
+            modelName = "gemini-3.1-flash-lite-preview",
             apiKey = apiKey,
             generationConfig = generationConfig {
                 temperature = 0.2f

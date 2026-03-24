@@ -2,6 +2,7 @@ package com.jobassistant.ui.screens.dashboard
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.ViewModule
@@ -32,8 +34,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -41,17 +45,15 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,7 +61,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,10 +68,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jobassistant.domain.model.ApplicationStatus
 import com.jobassistant.domain.model.JobApplication
+import com.jobassistant.ui.components.CompanyAvatar
+import com.jobassistant.ui.components.FitScoreRing
+import com.jobassistant.ui.components.RelativeTimeText
+import com.jobassistant.ui.components.StatusChip
+import com.jobassistant.ui.components.statusContainerColor
+import com.jobassistant.ui.components.statusLabelColor
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 private val STATUS_ORDER = listOf(
     ApplicationStatus.SAVED,
@@ -81,25 +85,18 @@ private val STATUS_ORDER = listOf(
 )
 
 private fun ApplicationStatus.displayName() = when (this) {
-    ApplicationStatus.SAVED -> "Saved"
-    ApplicationStatus.APPLIED -> "Applied"
+    ApplicationStatus.SAVED        -> "Saved"
+    ApplicationStatus.APPLIED      -> "Applied"
     ApplicationStatus.INTERVIEWING -> "Interviewing"
-    ApplicationStatus.OFFERED -> "Offered"
-    ApplicationStatus.REJECTED -> "Rejected"
+    ApplicationStatus.OFFERED      -> "Offered"
+    ApplicationStatus.REJECTED     -> "Rejected"
 }
 
-private const val EXPIRY_THRESHOLD_MS = 30L * 24 * 60 * 60 * 1000  // 30 days
+private const val EXPIRY_THRESHOLD_MS = 30L * 24 * 60 * 60 * 1000
 
 private fun isExpired(job: JobApplication): Boolean =
     job.status == ApplicationStatus.SAVED &&
         (System.currentTimeMillis() - job.lastSeenDate) > EXPIRY_THRESHOLD_MS
-
-private fun fitScoreColor(score: Int?): Color = when {
-    score == null -> Color.Gray
-    score < 40 -> Color(0xFFE53935)
-    score <= 70 -> Color(0xFFFB8C00)
-    else -> Color(0xFF43A047)
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,7 +114,7 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Job Dashboard") },
+                title = { Text("Dashboard") },
                 actions = {
                     IconButton(onClick = { viewModel.setViewMode(ViewMode.KANBAN) }) {
                         Icon(
@@ -157,42 +154,44 @@ fun DashboardScreen(
                 onAddJobClick = onAddJobClick
             )
         } else {
-            when (uiState.viewMode) {
-                ViewMode.KANBAN -> KanbanBoard(
-                    jobsByStatus = uiState.jobsByStatus,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    onJobClick = onJobClick,
-                    onJobLongPress = { bottomSheetJob = it }
-                )
-                ViewMode.LIST -> ListView(
-                    jobsByStatus = uiState.jobsByStatus,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    onJobClick = onJobClick,
-                    onJobDelete = { job ->
-                        viewModel.deleteJob(job)
-                        scope.launch {
-                            val result = snackbarHostState.showSnackbar(
-                                message = "Deleted ${job.companyName}",
-                                actionLabel = "Undo",
-                                duration = SnackbarDuration.Short
-                            )
-                            if (result == SnackbarResult.ActionPerformed) {
-                                // re-save with original state
-                                // The repository save will not trigger duplicate because
-                                // it's the same id — we use force-save via the repository
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                // Hero stats strip — always visible above the board/list
+                HeroStatsStrip(jobsByStatus = uiState.jobsByStatus)
+
+                when (uiState.viewMode) {
+                    ViewMode.KANBAN -> KanbanBoard(
+                        jobsByStatus = uiState.jobsByStatus,
+                        modifier = Modifier.fillMaxSize(),
+                        onJobClick = onJobClick,
+                        onJobLongPress = { bottomSheetJob = it }
+                    )
+                    ViewMode.LIST -> ListView(
+                        jobsByStatus = uiState.jobsByStatus,
+                        modifier = Modifier.fillMaxSize(),
+                        onJobClick = onJobClick,
+                        onJobDelete = { job ->
+                            viewModel.deleteJob(job)
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Deleted ${job.companyName}",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    // re-save handled by repository upsert
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
 
-    // Bottom sheet for status change
     val sheetJob = bottomSheetJob
     if (sheetJob != null) {
         ModalBottomSheet(
@@ -210,6 +209,73 @@ fun DashboardScreen(
         }
     }
 }
+
+// ── Hero Stats Strip ──────────────────────────────────────────────────────────
+
+@Composable
+private fun HeroStatsStrip(
+    jobsByStatus: Map<ApplicationStatus, List<JobApplication>>,
+    modifier: Modifier = Modifier
+) {
+    val total = jobsByStatus.values.sumOf { it.size }
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            MiniStatCard(
+                label = "Total",
+                value = total.toString(),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        items(STATUS_ORDER) { status ->
+            val count = jobsByStatus[status]?.size ?: 0
+            MiniStatCard(
+                label = status.displayName(),
+                value = count.toString(),
+                containerColor = statusContainerColor(status),
+                labelColor = statusLabelColor(status)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MiniStatCard(
+    label: String,
+    value: String,
+    containerColor: androidx.compose.ui.graphics.Color,
+    labelColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.height(64.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = labelColor
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = labelColor.copy(alpha = 0.8f)
+            )
+        }
+    }
+}
+
+// ── Kanban Board ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun KanbanBoard(
@@ -235,6 +301,7 @@ private fun KanbanBoard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun KanbanColumn(
     status: ApplicationStatus,
@@ -244,7 +311,7 @@ private fun KanbanColumn(
 ) {
     Surface(
         modifier = Modifier
-            .width(240.dp)
+            .width(260.dp)
             .fillMaxHeight(),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -270,7 +337,8 @@ private fun KanbanColumn(
                     JobCard(
                         job = job,
                         onClick = { onJobClick(job.id.toString()) },
-                        onLongPress = { onJobLongPress(job) }
+                        onLongPress = { onJobLongPress(job) },
+                        modifier = Modifier.animateItem()
                     )
                 }
             }
@@ -283,10 +351,11 @@ private fun KanbanColumn(
 private fun JobCard(
     job: JobApplication,
     onClick: () -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
@@ -294,73 +363,65 @@ private fun JobCard(
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = job.companyName,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = job.roleTitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                FitScoreBadge(score = job.fitScore)
-                job.appliedDate?.let { date ->
-                    Text(
-                        text = SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(date)),
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            CompanyAvatar(companyName = job.companyName)
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = job.companyName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = job.roleTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatusChip(status = job.status)
+                    Spacer(Modifier.weight(1f))
+                    RelativeTimeText(
+                        epochMillis = job.appliedDate,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-            // 9.3 — expiry warning for stale SAVED postings
-            if (isExpired(job)) {
-                Spacer(Modifier.height(4.dp))
-                SuggestionChip(
-                    onClick = {},
-                    label = {
-                        Text(
-                            "Posting may be expired",
-                            style = MaterialTheme.typography.labelSmall
+                if (isExpired(job)) {
+                    Spacer(Modifier.height(4.dp))
+                    SuggestionChip(
+                        onClick = {},
+                        label = {
+                            Text(
+                                "Posting may be expired",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            labelColor = MaterialTheme.colorScheme.onErrorContainer
                         )
-                    },
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        labelColor = MaterialTheme.colorScheme.onErrorContainer
                     )
-                )
+                }
             }
+
+            FitScoreRing(score = job.fitScore, size = 48.dp, strokeWidth = 5.dp)
         }
     }
 }
 
-@Composable
-internal fun FitScoreBadge(score: Int?) {
-    val color = fitScoreColor(score)
-    val animatedColor by animateColorAsState(targetValue = color, label = "fitScoreColor")
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = animatedColor.copy(alpha = 0.15f)
-    ) {
-        Text(
-            text = if (score != null) "$score%" else "N/A",
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = animatedColor,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
+// ── Status Change Bottom Sheet ────────────────────────────────────────────────
 
 @Composable
 private fun StatusChangeSheet(
@@ -371,26 +432,44 @@ private fun StatusChangeSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(bottom = 16.dp)
     ) {
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
-            "Change status for ${job.companyName}",
-            style = MaterialTheme.typography.titleMedium
+            text = "Move ${job.companyName}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
-        Spacer(Modifier.height(16.dp))
         STATUS_ORDER.forEach { status ->
-            TextButton(
-                onClick = { onStatusSelected(status) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(status.displayName())
-            }
+            val isCurrent = status == job.status
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = status.displayName(),
+                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                    )
+                },
+                leadingContent = { StatusChip(status = status) },
+                trailingContent = {
+                    if (isCurrent) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Current status",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                modifier = Modifier.clickable { onStatusSelected(status) }
+            )
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ── List View ─────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ListView(
     jobsByStatus: Map<ApplicationStatus, List<JobApplication>>,
@@ -408,7 +487,6 @@ private fun ListView(
     else allJobs.filter { it.status == selectedFilter }
 
     Column(modifier = modifier) {
-        // Filter chips
         LazyRow(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -443,7 +521,6 @@ private fun ListView(
                         } else false
                     }
                 )
-
                 SwipeToDismissBox(
                     state = dismissState,
                     backgroundContent = {
@@ -460,7 +537,8 @@ private fun ListView(
                             )
                         }
                     },
-                    enableDismissFromStartToEnd = false
+                    enableDismissFromStartToEnd = false,
+                    modifier = Modifier.animateItem()
                 ) {
                     ListJobRow(job = job, onClick = { onJobClick(job.id.toString()) })
                 }
@@ -483,8 +561,10 @@ private fun ListJobRow(job: JobApplication, onClick: () -> Unit) {
                 .fillMaxWidth()
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            CompanyAvatar(companyName = job.companyName)
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = job.companyName,
@@ -500,17 +580,24 @@ private fun ListJobRow(job: JobApplication, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = job.status.displayName(),
+                Spacer(Modifier.height(4.dp))
+                StatusChip(status = job.status)
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                FitScoreRing(score = job.fitScore, size = 44.dp, strokeWidth = 5.dp)
+                Spacer(Modifier.height(2.dp))
+                RelativeTimeText(
+                    epochMillis = job.appliedDate,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            FitScoreBadge(score = job.fitScore)
         }
     }
 }
+
+// ── Empty State ───────────────────────────────────────────────────────────────
 
 @Composable
 private fun EmptyState(

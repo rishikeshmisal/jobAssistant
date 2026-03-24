@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -94,6 +102,13 @@ fun InsightsScreen(
                 // Stats cards row
                 StatsCardsRow(stats = stats)
 
+                // Funnel: Applied → Interviewing → Offers
+                FunnelRow(
+                    totalApplied = stats.totalApplied,
+                    interviews = stats.interviews,
+                    offers = stats.offers
+                )
+
                 // Rate bars
                 RateSection(
                     interviewRate = stats.interviewRate,
@@ -124,24 +139,28 @@ private fun StatsCardsRow(stats: InsightsStats) {
             label = "Applied",
             value = stats.totalApplied.toString(),
             color = MaterialTheme.colorScheme.primary,
+            icon = Icons.Filled.Send,
             modifier = Modifier.weight(1f)
         )
         StatCard(
             label = "Interviews",
             value = stats.interviews.toString(),
             color = Color(0xFFFB8C00),
+            icon = Icons.Filled.Event,
             modifier = Modifier.weight(1f)
         )
         StatCard(
             label = "Rejected",
             value = stats.rejections.toString(),
             color = Color(0xFFE53935),
+            icon = Icons.Filled.Cancel,
             modifier = Modifier.weight(1f)
         )
         StatCard(
             label = "Offers",
             value = stats.offers.toString(),
             color = Color(0xFF43A047),
+            icon = Icons.Filled.EmojiEvents,
             modifier = Modifier.weight(1f)
         )
     }
@@ -152,6 +171,7 @@ private fun StatCard(
     label: String,
     value: String,
     color: Color,
+    icon: ImageVector,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -162,6 +182,13 @@ private fun StatCard(
             modifier = Modifier.padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineSmall,
@@ -174,6 +201,72 @@ private fun StatCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+@Composable
+private fun FunnelRow(
+    totalApplied: Int,
+    interviews: Int,
+    offers: Int,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FunnelStage(
+                label = "Applied",
+                value = totalApplied,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FunnelStage(
+                label = "Interviews",
+                value = interviews,
+                color = Color(0xFFFB8C00)
+            )
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            FunnelStage(
+                label = "Offers",
+                value = offers,
+                color = Color(0xFF43A047)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FunnelStage(label: String, value: Int, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value.toString(),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -301,12 +394,33 @@ private fun AiInsightsSection(
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(Modifier.height(4.dp))
-                    it.recommendedActions.forEach { action ->
-                        Text(
-                            text = "• $action",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        it.recommendedActions.forEach { action ->
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Lightbulb,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = action,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
