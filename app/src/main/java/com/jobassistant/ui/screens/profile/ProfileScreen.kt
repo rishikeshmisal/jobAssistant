@@ -63,6 +63,7 @@ import com.jobassistant.ui.theme.ThemeSeedColors
 
 @Composable
 fun ProfileScreen(
+    onNavigateToCsvImport: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val profileState by viewModel.profileState.collectAsStateWithLifecycle()
@@ -401,6 +402,14 @@ fun ProfileScreen(
                         .testTag("export_data_button")
                 ) {
                     Text("Export Data")
+                }
+                OutlinedButton(
+                    onClick = onNavigateToCsvImport,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("import_csv_button")
+                ) {
+                    Text("Import from CSV")
                 }
             }
         }

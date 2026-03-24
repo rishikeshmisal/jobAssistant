@@ -184,4 +184,109 @@ class UserProfileDataStoreTest {
         assertEquals("token-2", userProfileDataStore.gmailToken.first())
         assertEquals("new@gmail.com", userProfileDataStore.gmailEmail.first())
     }
+
+    // ── Gmail access token (OAuth2 short-lived token) ────────────────────────
+
+    @Test
+    fun `gmailAccessToken is null before saving`() = runTest {
+        assertEquals(null, userProfileDataStore.gmailAccessToken.first())
+    }
+
+    @Test
+    fun `gmailTokenExpiry is null before saving`() = runTest {
+        assertEquals(null, userProfileDataStore.gmailTokenExpiry.first())
+    }
+
+    @Test
+    fun `saveGmailAccessToken persists token and expiry`() = runTest {
+        userProfileDataStore.saveGmailAccessToken("access-token-xyz", 1_700_000_000_000L)
+
+        assertEquals("access-token-xyz", userProfileDataStore.gmailAccessToken.first())
+        assertEquals(1_700_000_000_000L, userProfileDataStore.gmailTokenExpiry.first())
+    }
+
+    @Test
+    fun `saveGmailAccessToken clears needsReauth flag`() = runTest {
+        userProfileDataStore.markGmailNeedsReauth()
+        userProfileDataStore.saveGmailAccessToken("token", 12345L)
+
+        assertFalse(userProfileDataStore.gmailNeedsReauth.first())
+    }
+
+    // ── gmailNeedsReauth flag ────────────────────────────────────────────────
+
+    @Test
+    fun `gmailNeedsReauth is false by default`() = runTest {
+        assertFalse(userProfileDataStore.gmailNeedsReauth.first())
+    }
+
+    @Test
+    fun `markGmailNeedsReauth sets flag to true`() = runTest {
+        userProfileDataStore.markGmailNeedsReauth()
+
+        assertTrue(userProfileDataStore.gmailNeedsReauth.first())
+    }
+
+    @Test
+    fun `markGmailNeedsReauth removes access token`() = runTest {
+        userProfileDataStore.saveGmailAccessToken("token", 12345L)
+        userProfileDataStore.markGmailNeedsReauth()
+
+        assertEquals(null, userProfileDataStore.gmailAccessToken.first())
+    }
+
+    @Test
+    fun `clearGmailNeedsReauth resets flag to false`() = runTest {
+        userProfileDataStore.markGmailNeedsReauth()
+        userProfileDataStore.clearGmailNeedsReauth()
+
+        assertFalse(userProfileDataStore.gmailNeedsReauth.first())
+    }
+
+    @Test
+    fun `clearGmailCredentials also removes access token and expiry`() = runTest {
+        userProfileDataStore.saveGmailAccessToken("access-token", 99999L)
+        userProfileDataStore.clearGmailCredentials()
+
+        assertEquals(null, userProfileDataStore.gmailAccessToken.first())
+        assertEquals(null, userProfileDataStore.gmailTokenExpiry.first())
+    }
+
+    @Test
+    fun `clearGmailCredentials clears reauth flag`() = runTest {
+        userProfileDataStore.markGmailNeedsReauth()
+        userProfileDataStore.clearGmailCredentials()
+
+        assertFalse(userProfileDataStore.gmailNeedsReauth.first())
+    }
+
+    // ── BYOK API key ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `userApiKey is null before saving`() = runTest {
+        assertEquals(null, userProfileDataStore.userApiKey.first())
+    }
+
+    @Test
+    fun `saveUserApiKey persists non-blank key`() = runTest {
+        userProfileDataStore.saveUserApiKey("my-gemini-key")
+
+        assertEquals("my-gemini-key", userProfileDataStore.userApiKey.first())
+    }
+
+    @Test
+    fun `saveUserApiKey with blank string removes key`() = runTest {
+        userProfileDataStore.saveUserApiKey("my-gemini-key")
+        userProfileDataStore.saveUserApiKey("")
+
+        assertEquals(null, userProfileDataStore.userApiKey.first())
+    }
+
+    @Test
+    fun `saveUserApiKey overwrites previous key`() = runTest {
+        userProfileDataStore.saveUserApiKey("key-1")
+        userProfileDataStore.saveUserApiKey("key-2")
+
+        assertEquals("key-2", userProfileDataStore.userApiKey.first())
+    }
 }

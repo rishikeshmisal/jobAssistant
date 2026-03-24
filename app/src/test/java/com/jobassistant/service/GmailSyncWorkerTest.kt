@@ -249,7 +249,7 @@ class GmailSyncWorkerTest {
     // ── INTERVIEW ─────────────────────────────────────────────────────────────
 
     @Test
-    fun `doWork INTERVIEW - updates job to INTERVIEWING`() = runTest {
+    fun `doWork INTERVIEW - updates job to SCREENING`() = runTest {
         setupToken()
         val existingJob = JobApplication(
             id = UUID.randomUUID(),
@@ -281,7 +281,7 @@ class GmailSyncWorkerTest {
 
         val savedSlot = slot<JobApplication>()
         coVerify { jobRepository.save(capture(savedSlot)) }
-        assertEquals(ApplicationStatus.INTERVIEWING, savedSlot.captured.status)
+        assertEquals(ApplicationStatus.SCREENING, savedSlot.captured.status)
     }
 
     // ── ALERT ─────────────────────────────────────────────────────────────────

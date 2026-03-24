@@ -122,7 +122,7 @@ class GmailSyncWorker @AssistedInject constructor(
                             }
                             jobRepository.save(
                                 job.copy(
-                                    status = ApplicationStatus.INTERVIEWING,
+                                    status = ApplicationStatus.SCREENING,
                                     interviewDate = emailAction.date,
                                     notes = if (interviewNotes.isNotBlank()) interviewNotes else job.notes,
                                     linkedEmailThreadIds = job.linkedEmailThreadIds + ref.threadId

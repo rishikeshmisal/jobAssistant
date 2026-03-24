@@ -1,5 +1,8 @@
 package com.jobassistant.ui.screens.detail
 
+import android.content.Context
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,8 +14,10 @@ import com.jobassistant.domain.model.ApplicationStatus
 import com.jobassistant.domain.model.JobApplication
 import com.jobassistant.domain.repository.JobApplicationRepository
 import com.jobassistant.domain.usecase.EvaluateFitUseCase
+import com.jobassistant.domain.usecase.FetchUrlUseCase
 import com.jobassistant.domain.usecase.GetAllJobsUseCase
 import com.jobassistant.domain.usecase.UpdateJobStatusUseCase
+import com.jobassistant.util.OcrProcessor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +27,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-private const val RATE_LIMIT_COOLDOWN_MS = 60_000L // 1 minute UI cooldown on 429/529
+private const val RATE_LIMIT_COOLDOWN_MS = 60_000L
 
 data class JobDetailUiState(
     val job: JobApplication? = null,
@@ -32,7 +37,6 @@ data class JobDetailUiState(
     val isSaving: Boolean = false,
     val error: String? = null,
     val errorType: ApiErrorType? = null,
-    /** Epoch ms after which the re-analyze button should be re-enabled (rate-limit cooldown). */
     val retryAvailableAt: Long? = null,
     val saved: Boolean = false
 )
@@ -44,7 +48,9 @@ class JobDetailViewModel @Inject constructor(
     private val jobApplicationRepository: JobApplicationRepository,
     private val updateJobStatusUseCase: UpdateJobStatusUseCase,
     private val evaluateFitUseCase: EvaluateFitUseCase,
-    private val userProfileDataStore: UserProfileDataStore
+    private val userProfileDataStore: UserProfileDataStore,
+    private val fetchUrlUseCase: FetchUrlUseCase,
+    private val ocrProcessor: OcrProcessor
 ) : ViewModel() {
 
     private val jobId: UUID = UUID.fromString(
@@ -60,7 +66,12 @@ class JobDetailViewModel @Inject constructor(
     val salaryRange = MutableStateFlow("")
     val appliedDate = MutableStateFlow<Long?>(null)
     val interviewDate = MutableStateFlow<Long?>(null)
-    val status = MutableStateFlow(ApplicationStatus.SAVED)
+    val status = MutableStateFlow(ApplicationStatus.INTERESTED)
+
+    // Job description evaluation flows
+    val jobDescription = MutableStateFlow("")
+    val ocrText = MutableStateFlow("")
+    val jobDescriptionTab = MutableStateFlow(0) // 0=Paste, 1=URL, 2=Screenshot
 
     init {
         loadJob()
@@ -79,38 +90,99 @@ class JobDetailViewModel @Inject constructor(
                     appliedDate.value = job.appliedDate
                     interviewDate.value = job.interviewDate
                     status.value = job.status
+                    jobDescription.value = job.jobDescription
                 } ?: run {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = "Job not found")
             }
         }
     }
 
-    fun reAnalyzeFit() {
-        val job = _uiState.value.job ?: return
+    // ── Analysis paths ────────────────────────────────────────────────────────
+
+    fun analyzeFromPaste(text: String) {
+        if (text.isBlank()) return
+        runAnalysis(jobDescriptionText = text)
+    }
+
+    fun analyzeFromUrl(url: String) {
+        if (url.isBlank()) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isAnalyzing = true, error = null)
-            val resumeText = userProfileDataStore.userProfileFlow.first().resumeText
-            val jobDescription = job.notes
-            when (val result = evaluateFitUseCase(resumeText, jobDescription)) {
-                is ClaudeResult.Success -> {
-                    _uiState.value = _uiState.value.copy(
-                        fitAnalysis = result.data,
-                        isAnalyzing = false
-                    )
+            val stripped = fetchUrlUseCase(url)
+            if (stripped.isNullOrBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    isAnalyzing = false,
+                    error = "Could not fetch content from URL"
+                )
+                return@launch
+            }
+            jobDescription.value = stripped
+            performEvaluation(stripped)
+        }
+    }
+
+    fun analyzeFromScreenshot(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isAnalyzing = true, error = null)
+            try {
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
                 }
-                is ClaudeResult.Error -> {
-                    val cooldown = if (result.errorType == ApiErrorType.RATE_LIMIT)
-                        System.currentTimeMillis() + RATE_LIMIT_COOLDOWN_MS else null
+                if (bitmap == null) {
                     _uiState.value = _uiState.value.copy(
-                        isAnalyzing = false,
-                        error = result.message,
-                        errorType = result.errorType,
-                        retryAvailableAt = cooldown
+                        isAnalyzing = false, error = "Could not load image"
                     )
+                    return@launch
                 }
+                val text = ocrProcessor.extractText(bitmap)
+                ocrText.value = text
+                _uiState.value = _uiState.value.copy(isAnalyzing = false)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isAnalyzing = false, error = "OCR failed: ${e.message}"
+                )
             }
         }
     }
+
+    private fun runAnalysis(jobDescriptionText: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isAnalyzing = true, error = null)
+            jobDescription.value = jobDescriptionText
+            performEvaluation(jobDescriptionText)
+        }
+    }
+
+    private suspend fun performEvaluation(text: String) {
+        val resumeText = userProfileDataStore.userProfileFlow.first().resumeText
+        when (val result = evaluateFitUseCase(resumeText, text)) {
+            is ClaudeResult.Success -> {
+                val job = _uiState.value.job ?: return
+                val updatedJob = job.copy(
+                    fitScore = result.data.score,
+                    jobDescription = text
+                )
+                jobApplicationRepository.save(updatedJob)
+                _uiState.value = _uiState.value.copy(
+                    job = updatedJob,
+                    fitAnalysis = result.data,
+                    isAnalyzing = false
+                )
+            }
+            is ClaudeResult.Error -> {
+                val cooldown = if (result.errorType == ApiErrorType.RATE_LIMIT)
+                    System.currentTimeMillis() + RATE_LIMIT_COOLDOWN_MS else null
+                _uiState.value = _uiState.value.copy(
+                    isAnalyzing = false,
+                    error = result.message,
+                    errorType = result.errorType,
+                    retryAvailableAt = cooldown
+                )
+            }
+        }
+    }
+
+    // ── Save changes ──────────────────────────────────────────────────────────
 
     fun saveChanges() {
         val job = _uiState.value.job ?: return
@@ -123,14 +195,11 @@ class JobDetailViewModel @Inject constructor(
                 appliedDate = appliedDate.value,
                 interviewDate = interviewDate.value,
                 status = status.value,
-                fitScore = _uiState.value.fitAnalysis?.score ?: job.fitScore
+                fitScore = _uiState.value.fitAnalysis?.score ?: job.fitScore,
+                jobDescription = jobDescription.value
             )
             jobApplicationRepository.save(updated)
-            _uiState.value = _uiState.value.copy(
-                job = updated,
-                isSaving = false,
-                saved = true
-            )
+            _uiState.value = _uiState.value.copy(job = updated, isSaving = false, saved = true)
         }
     }
 

@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jobassistant.data.db.dao.CareerInsightsDao
 import com.jobassistant.data.db.dao.JobApplicationDao
 import com.jobassistant.data.db.entity.CareerInsightsEntity
@@ -13,7 +15,7 @@ import net.sqlcipher.database.SupportFactory
 
 @Database(
     entities = [JobApplicationEntity::class, CareerInsightsEntity::class],
-    version = 1,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -23,6 +25,23 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun careerInsightsDao(): CareerInsightsDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE job_applications ADD COLUMN jobDescription TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Rename old enum values to new names
+                database.execSQL("UPDATE job_applications SET status = 'INTERESTED' WHERE status = 'SAVED'")
+                database.execSQL("UPDATE job_applications SET status = 'OFFER' WHERE status = 'OFFERED'")
+                // APPLIED, INTERVIEWING, REJECTED are unchanged — no UPDATE needed
+            }
+        }
+
         fun create(context: Context, passphrase: String, converters: Converters): AppDatabase {
             val factory = SupportFactory(passphrase.toByteArray())
             return Room.databaseBuilder(
@@ -32,7 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
             )
                 .openHelperFactory(factory)
                 .addTypeConverter(converters)
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
         }
     }

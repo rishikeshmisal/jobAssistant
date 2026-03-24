@@ -9,8 +9,10 @@ import com.jobassistant.domain.model.JobApplication
 import com.jobassistant.domain.model.UserProfile
 import com.jobassistant.domain.repository.JobApplicationRepository
 import com.jobassistant.domain.usecase.EvaluateFitUseCase
+import com.jobassistant.domain.usecase.FetchUrlUseCase
 import com.jobassistant.domain.usecase.GetAllJobsUseCase
 import com.jobassistant.domain.usecase.UpdateJobStatusUseCase
+import com.jobassistant.util.OcrProcessor
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -42,6 +44,8 @@ class JobDetailViewModelTest {
     private lateinit var updateJobStatusUseCase: UpdateJobStatusUseCase
     private lateinit var evaluateFitUseCase: EvaluateFitUseCase
     private lateinit var userProfileDataStore: UserProfileDataStore
+    private lateinit var fetchUrlUseCase: FetchUrlUseCase
+    private lateinit var ocrProcessor: OcrProcessor
 
     private val jobId = UUID.randomUUID()
     private val testJob = JobApplication(
@@ -52,7 +56,8 @@ class JobDetailViewModelTest {
         fitScore = 72,
         notes = "great job description",
         location = "NYC",
-        salaryRange = "100k-120k"
+        salaryRange = "100k-120k",
+        jobDescription = "Kotlin Android job description"
     )
 
     private val fakeProfile = UserProfile(
@@ -70,7 +75,9 @@ class JobDetailViewModelTest {
             jobApplicationRepository,
             updateJobStatusUseCase,
             evaluateFitUseCase,
-            userProfileDataStore
+            userProfileDataStore,
+            fetchUrlUseCase,
+            ocrProcessor
         )
     }
 
@@ -82,6 +89,8 @@ class JobDetailViewModelTest {
         updateJobStatusUseCase = mockk(relaxed = true)
         evaluateFitUseCase = mockk()
         userProfileDataStore = mockk()
+        fetchUrlUseCase = mockk()
+        ocrProcessor = mockk()
 
         coEvery { getAllJobsUseCase() } returns flowOf(listOf(testJob))
         coEvery { userProfileDataStore.userProfileFlow } returns flowOf(fakeProfile)
@@ -112,20 +121,28 @@ class JobDetailViewModelTest {
     }
 
     @Test
-    fun `reAnalyzeFit calls EvaluateFitUseCase with resume and job description`() = runTest {
+    fun `init populates jobDescription flow from loaded job`() = runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals("Kotlin Android job description", vm.jobDescription.value)
+    }
+
+    @Test
+    fun `analyzeFromPaste calls EvaluateFitUseCase with resume and supplied text`() = runTest {
         val fakeFit = FitAnalysis(score = 88, pros = listOf("Kotlin"), cons = emptyList(), missingSkills = emptyList())
         coEvery { evaluateFitUseCase(any(), any()) } returns ClaudeResult.Success(fakeFit)
 
         val vm = createViewModel()
         advanceUntilIdle()
-        vm.reAnalyzeFit()
+        vm.analyzeFromPaste("job posting text")
         advanceUntilIdle()
 
-        coVerify { evaluateFitUseCase(fakeProfile.resumeText, testJob.notes) }
+        coVerify { evaluateFitUseCase(fakeProfile.resumeText, "job posting text") }
     }
 
     @Test
-    fun `reAnalyzeFit updates uiState fitAnalysis on success`() = runTest {
+    fun `analyzeFromPaste updates uiState fitAnalysis on success`() = runTest {
         val fakeFit = FitAnalysis(score = 90, pros = listOf("pro1"), cons = listOf("con1"), missingSkills = listOf("skill1"))
         coEvery { evaluateFitUseCase(any(), any()) } returns ClaudeResult.Success(fakeFit)
 
@@ -133,7 +150,7 @@ class JobDetailViewModelTest {
         advanceUntilIdle()
         assertNull(vm.uiState.value.fitAnalysis)
 
-        vm.reAnalyzeFit()
+        vm.analyzeFromPaste("job description")
         advanceUntilIdle()
 
         assertEquals(fakeFit, vm.uiState.value.fitAnalysis)
@@ -141,12 +158,12 @@ class JobDetailViewModelTest {
     }
 
     @Test
-    fun `reAnalyzeFit sets error on ClaudeResult Error`() = runTest {
+    fun `analyzeFromPaste sets error on ClaudeResult Error`() = runTest {
         coEvery { evaluateFitUseCase(any(), any()) } returns ClaudeResult.Error("Claude timeout", isRetryable = true)
 
         val vm = createViewModel()
         advanceUntilIdle()
-        vm.reAnalyzeFit()
+        vm.analyzeFromPaste("some jd")
         advanceUntilIdle()
 
         assertNotNull(vm.uiState.value.error)
@@ -173,6 +190,20 @@ class JobDetailViewModelTest {
                         job.salaryRange == "130k" &&
                         job.status == ApplicationStatus.INTERVIEWING
             })
+        }
+    }
+
+    @Test
+    fun `saveChanges includes jobDescription in saved job`() = runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+        vm.jobDescription.value = "updated job description"
+
+        vm.saveChanges()
+        advanceUntilIdle()
+
+        coVerify {
+            jobApplicationRepository.save(match { it.jobDescription == "updated job description" })
         }
     }
 

@@ -21,7 +21,7 @@ class UpdateJobStatusUseCaseTest {
         id = jobId,
         companyName = "Meta",
         roleTitle = "Staff Engineer",
-        status = ApplicationStatus.SAVED
+        status = ApplicationStatus.INTERESTED
     )
 
     @Before
@@ -60,11 +60,11 @@ class UpdateJobStatusUseCaseTest {
         coEvery { repository.getById(jobId) } returns existingJob
         coEvery { repository.save(any()) } returns Unit
 
-        useCase(jobId, ApplicationStatus.OFFERED)
+        useCase(jobId, ApplicationStatus.OFFER)
 
         coVerify {
             repository.save(withArg { saved ->
-                assert(saved.status == ApplicationStatus.OFFERED)
+                assert(saved.status == ApplicationStatus.OFFER)
                 assert(saved.companyName == existingJob.companyName)
                 assert(saved.roleTitle == existingJob.roleTitle)
                 assert(saved.notes == existingJob.notes)

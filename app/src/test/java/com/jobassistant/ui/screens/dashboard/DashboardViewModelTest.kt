@@ -34,7 +34,7 @@ class DashboardViewModelTest {
 
     private val savedJob = JobApplication(
         id = UUID.randomUUID(), companyName = "Acme", roleTitle = "Dev",
-        status = ApplicationStatus.SAVED
+        status = ApplicationStatus.INTERESTED
     )
     private val appliedJob = JobApplication(
         id = UUID.randomUUID(), companyName = "Globex", roleTitle = "SWE",
@@ -65,7 +65,7 @@ class DashboardViewModelTest {
         advanceUntilIdle()
         val grouped = viewModel.uiState.value.jobsByStatus
 
-        assertEquals(listOf(savedJob), grouped[ApplicationStatus.SAVED])
+        assertEquals(listOf(savedJob), grouped[ApplicationStatus.INTERESTED])
         assertEquals(listOf(appliedJob), grouped[ApplicationStatus.APPLIED])
         assertEquals(listOf(interviewJob), grouped[ApplicationStatus.INTERVIEWING])
     }

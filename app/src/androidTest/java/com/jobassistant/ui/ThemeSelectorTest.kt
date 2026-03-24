@@ -100,7 +100,7 @@ class ThemeSelectorTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Y").performClick()
-        assertEquals(AppTheme.YELLOW, selected)
+        composeTestRule.onNodeWithText("P").performClick()
+        assertEquals(AppTheme.PURPLE, selected)
     }
 }

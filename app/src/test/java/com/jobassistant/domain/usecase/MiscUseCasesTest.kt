@@ -67,14 +67,14 @@ class MiscUseCasesTest {
 
     @Test
     fun `GetJobsByStatusUseCase filters by status correctly`() = runTest {
-        val savedJob = job.copy(status = ApplicationStatus.SAVED)
-        every { jobRepo.getByStatusAsFlow(ApplicationStatus.SAVED) } returns flowOf(listOf(savedJob))
+        val savedJob = job.copy(status = ApplicationStatus.INTERESTED)
+        every { jobRepo.getByStatusAsFlow(ApplicationStatus.INTERESTED) } returns flowOf(listOf(savedJob))
         val useCase = GetJobsByStatusUseCase(jobRepo)
 
-        useCase(ApplicationStatus.SAVED).test {
+        useCase(ApplicationStatus.INTERESTED).test {
             val result = awaitItem()
             assertEquals(1, result.size)
-            assertEquals(ApplicationStatus.SAVED, result[0].status)
+            assertEquals(ApplicationStatus.INTERESTED, result[0].status)
             awaitComplete()
         }
     }

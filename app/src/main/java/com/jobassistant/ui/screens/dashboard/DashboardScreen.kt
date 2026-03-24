@@ -33,7 +33,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+// FloatingActionButton replaced by SpeedDialFab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,9 +66,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.background
+import com.jobassistant.domain.model.ACTIVE_PIPELINE
+import com.jobassistant.domain.model.ALL_STATUSES
 import com.jobassistant.domain.model.ApplicationStatus
 import com.jobassistant.domain.model.JobApplication
+import com.jobassistant.domain.model.TERMINAL_STATUSES
+import com.jobassistant.domain.model.displayName
 import com.jobassistant.ui.components.CompanyAvatar
+import com.jobassistant.ui.components.SpeedDialFab
 import com.jobassistant.ui.components.FitScoreRing
 import com.jobassistant.ui.components.RelativeTimeText
 import com.jobassistant.ui.components.StatusChip
@@ -76,26 +82,10 @@ import com.jobassistant.ui.components.statusContainerColor
 import com.jobassistant.ui.components.statusLabelColor
 import kotlinx.coroutines.launch
 
-private val STATUS_ORDER = listOf(
-    ApplicationStatus.SAVED,
-    ApplicationStatus.APPLIED,
-    ApplicationStatus.INTERVIEWING,
-    ApplicationStatus.OFFERED,
-    ApplicationStatus.REJECTED
-)
-
-private fun ApplicationStatus.displayName() = when (this) {
-    ApplicationStatus.SAVED        -> "Saved"
-    ApplicationStatus.APPLIED      -> "Applied"
-    ApplicationStatus.INTERVIEWING -> "Interviewing"
-    ApplicationStatus.OFFERED      -> "Offered"
-    ApplicationStatus.REJECTED     -> "Rejected"
-}
-
 private const val EXPIRY_THRESHOLD_MS = 30L * 24 * 60 * 60 * 1000
 
 private fun isExpired(job: JobApplication): Boolean =
-    job.status == ApplicationStatus.SAVED &&
+    job.status == ApplicationStatus.INTERESTED &&
         (System.currentTimeMillis() - job.lastSeenDate) > EXPIRY_THRESHOLD_MS
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -103,6 +93,7 @@ private fun isExpired(job: JobApplication): Boolean =
 fun DashboardScreen(
     onJobClick: (String) -> Unit = {},
     onAddJobClick: () -> Unit = {},
+    onEvaluateFitClick: () -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -110,6 +101,7 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
 
     var bottomSheetJob by remember { mutableStateOf<JobApplication?>(null) }
+    var speedDialExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -138,14 +130,18 @@ fun DashboardScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddJobClick) {
-                Icon(Icons.Filled.Add, contentDescription = "Add job")
-            }
+            SpeedDialFab(
+                expanded = speedDialExpanded,
+                onToggle = { speedDialExpanded = !speedDialExpanded },
+                onTrackJob = { speedDialExpanded = false; onAddJobClick() },
+                onEvaluateFit = { speedDialExpanded = false; onEvaluateFitClick() }
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         val allJobs = uiState.jobsByStatus.values.flatten()
 
+        Box(modifier = Modifier.fillMaxSize()) {
         if (allJobs.isEmpty() && !uiState.isLoading) {
             EmptyState(
                 modifier = Modifier
@@ -190,6 +186,21 @@ fun DashboardScreen(
                 }
             }
         }
+
+        // Scrim when SpeedDial is expanded
+        androidx.compose.animation.AnimatedVisibility(
+            visible = speedDialExpanded,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f))
+                    .clickable { speedDialExpanded = false }
+            )
+        }
+        } // end outer Box
     }
 
     val sheetJob = bottomSheetJob
@@ -231,7 +242,7 @@ private fun HeroStatsStrip(
                 labelColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
-        items(STATUS_ORDER) { status ->
+        items(ALL_STATUSES) { status ->
             val count = jobsByStatus[status]?.size ?: 0
             MiniStatCard(
                 label = status.displayName(),
@@ -289,13 +300,68 @@ private fun KanbanBoard(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(STATUS_ORDER) { status ->
+        // Active pipeline columns
+        items(ACTIVE_PIPELINE) { status ->
             val jobs = jobsByStatus[status] ?: emptyList()
             KanbanColumn(
                 status = status,
                 jobs = jobs,
                 onJobClick = onJobClick,
                 onJobLongPress = onJobLongPress
+            )
+        }
+        // "Closed" divider + terminal columns
+        item {
+            KanbanTerminalGroup(
+                jobsByStatus = jobsByStatus,
+                onJobClick = onJobClick,
+                onJobLongPress = onJobLongPress
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun KanbanTerminalGroup(
+    jobsByStatus: Map<ApplicationStatus, List<JobApplication>>,
+    onJobClick: (String) -> Unit,
+    onJobLongPress: (JobApplication) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Faint vertical divider with "Closed" label
+        Column(
+            modifier = Modifier.fillMaxHeight(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            HorizontalDivider(
+                modifier = Modifier
+                    .height(40.dp)
+                    .width(1.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+            Text(
+                text = "Closed",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+            HorizontalDivider(
+                modifier = Modifier
+                    .height(40.dp)
+                    .width(1.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+        }
+        TERMINAL_STATUSES.forEach { status ->
+            val jobs = jobsByStatus[status] ?: emptyList()
+            KanbanColumn(
+                status = status,
+                jobs = jobs,
+                onJobClick = onJobClick,
+                onJobLongPress = onJobLongPress,
+                faded = true
             )
         }
     }
@@ -307,14 +373,15 @@ private fun KanbanColumn(
     status: ApplicationStatus,
     jobs: List<JobApplication>,
     onJobClick: (String) -> Unit,
-    onJobLongPress: (JobApplication) -> Unit
+    onJobLongPress: (JobApplication) -> Unit,
+    faded: Boolean = false
 ) {
     Surface(
         modifier = Modifier
             .width(260.dp)
             .fillMaxHeight(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (faded) 0.3f else 0.5f)
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
             Row(
@@ -442,7 +509,7 @@ private fun StatusChangeSheet(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
-        STATUS_ORDER.forEach { status ->
+        ALL_STATUSES.forEach { status ->
             val isCurrent = status == job.status
             ListItem(
                 headlineContent = {
@@ -498,7 +565,7 @@ private fun ListView(
                     label = { Text("All") }
                 )
             }
-            items(STATUS_ORDER) { status ->
+            items(ALL_STATUSES) { status ->
                 FilterChip(
                     selected = selectedFilter == status,
                     onClick = { selectedFilter = if (selectedFilter == status) null else status },

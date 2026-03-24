@@ -79,7 +79,7 @@ fun FitScoreRing(
             }
         }
         Text(
-            text = if (score != null) "$score" else "N/A",
+            text = if (score != null) "$score" else "?",
             style = if (size >= 72.dp) MaterialTheme.typography.labelLarge
                     else MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,

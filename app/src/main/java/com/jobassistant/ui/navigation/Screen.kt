@@ -6,7 +6,9 @@ sealed class Screen(val route: String) {
     object JobDetail  : Screen("job_detail/{jobId}") {
         fun createRoute(jobId: String) = "job_detail/$jobId"
     }
-    object AddJob    : Screen("add_job")
-    object Profile   : Screen("profile")
-    object Insights  : Screen("insights")
+    object AddJob     : Screen("add_job")
+    object Profile    : Screen("profile")
+    object Insights   : Screen("insights")
+    object CsvImport   : Screen("csv_import")
+    object EvaluateJob : Screen("evaluate_job")
 }
