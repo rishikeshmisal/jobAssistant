@@ -16,5 +16,6 @@ data class JobApplication(
     val notes: String = "",
     val linkedEmailThreadIds: List<String> = emptyList(),
     val lastSeenDate: Long = System.currentTimeMillis(),
-    val jobDescription: String = ""
+    val jobDescription: String = "",
+    val analysisDate: Long? = null
 )

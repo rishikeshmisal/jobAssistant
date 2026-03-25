@@ -1,0 +1,44 @@
+appId: com.jobassistant
+---
+# Scene 02 — Add Job / Track a Job (~20 seconds)
+# Shows: SpeedDial FAB expansion, 4-field form, auto-navigation to Job Detail with ? ring.
+# Pre-condition: data already seeded, app on Dashboard.
+
+- evalScript: sleep(500)
+
+# Open SpeedDial
+- tapOn:
+    "Add"
+- evalScript: sleep(600)
+
+# Choose "Track Job"
+- tapOn:
+    "Track Job"
+- evalScript: sleep(1500)
+
+# Fill in the 4-field form
+- tapOn:
+    "Company Name"
+- inputText:
+    text: "Stripe"
+- tapOn:
+    "Role Title"
+- inputText:
+    text: "Senior Android Engineer"
+- tapOn:
+    "Location (optional)"
+- inputText:
+    text: "Remote"
+- evalScript: sleep(500)
+
+# Save — auto-navigates to Job Detail
+- tapOn:
+    "Save Job"
+- evalScript: sleep(1200)
+
+# Job Detail shows "?" ring — score not yet analyzed
+- assertVisible: "Stripe"
+
+# Navigate back
+- tapOn: "Back"
+- evalScript: sleep(800)

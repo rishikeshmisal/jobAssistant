@@ -19,5 +19,6 @@ data class JobApplicationEntity(
     val notes: String,
     val linkedEmailThreadIds: List<String>,
     val lastSeenDate: Long,
-    val jobDescription: String = ""
+    val jobDescription: String = "",
+    val analysisDate: Long? = null
 )

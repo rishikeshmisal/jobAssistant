@@ -1,0 +1,38 @@
+appId: com.jobassistant
+---
+# Scene 08 — Theme Switcher (~15 seconds)
+# Shows: instant full-app re-theming, tinted background, the 4 colour options.
+# Pre-condition: app anywhere in the navigation stack.
+
+- launchApp:
+    appId: com.jobassistant
+- evalScript: sleep(1000)
+
+# Navigate to Profile → Appearance section
+- tapOn: "Profile"
+- evalScript: sleep(800)
+
+# Scroll up to see Appearance section at top
+- swipe:
+    direction: UP
+- evalScript: sleep(600)
+
+# Tap Purple (4th circle) — contentDescription = "PURPLE"
+- tapOn: "PURPLE"
+- evalScript: sleep(1200)
+
+# Tap Red
+- tapOn: "RED"
+- evalScript: sleep(1200)
+
+# Tap Blue
+- tapOn: "BLUE"
+- evalScript: sleep(1200)
+
+# Return to Green (default)
+- tapOn: "GREEN"
+- evalScript: sleep(1000)
+
+# Back to Dashboard
+- tapOn: "Dashboard"
+- evalScript: sleep(800)
