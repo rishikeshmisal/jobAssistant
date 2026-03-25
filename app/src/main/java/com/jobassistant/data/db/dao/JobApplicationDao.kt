@@ -27,4 +27,7 @@ interface JobApplicationDao {
 
     @Delete
     suspend fun delete(entity: JobApplicationEntity)
+
+    @Query("DELETE FROM job_applications")
+    suspend fun deleteAll()
 }

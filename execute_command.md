@@ -123,6 +123,33 @@ Read .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md
 After all files are written, write EvaluateJobViewModelTest (all 7 test cases listed in Phase 15 Testing Requirements), run ./gradlew testDebugUnitTest jacocoCoverageVerification, then build and install with ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk, and confirm all Phase 15 MVP Checkpoints are green before stopping. Do not introduce any regressions — all Phase 1–14 checkpoints must still pass.
 ```
 
+## Phase 16 — Job Detail Screen Redesign
+```
+Read .claude/skills/android-hilt-patterns/SKILL.md and .claude/skills/room-sqlcipher-migrations/SKILL.md first. Then read execution.md Phase 16 in full (sections 16.1–16.10) before writing a single line of code. Implement each section in order:
+
+16.1 — Remove the BottomAppBar entirely from JobDetailScreen's Scaffold. Move the delete action into a three-dot overflow IconButton in the TopAppBar actions slot using a DropdownMenu. The AlertDialog confirmation is unchanged. Remove all BottomAppBar imports.
+
+16.2 — Redesign the header: replace the plain Column with a Row containing CompanyAvatar(size=48.dp) on the left and a Column on the right showing company name (titleLarge + Bold), role title (bodyLarge, onSurfaceVariant), and a metadata Row with location icon + location text and a salary divider + salary text (bodySmall, onSurfaceVariant) — only rendered when non-null/non-blank. Keep the "Posting may be expired" SuggestionChip below the metadata row.
+
+16.3 — Replace the full-width StatusDropdown OutlinedButton with a horizontally scrollable LazyRow of FilterChips, one per status from ALL_STATUSES. The selected chip uses statusContainerColor() and statusLabelColor() from StatusChip.kt. Non-selected chips use default FilterChip surface colors. Remove the StatusDropdown composable entirely.
+
+16.4 — Redesign the Fit Score card into three explicit states. State A (no score, no JD): compact ~80dp card with Analytics outline icon and prompt text "No fit score yet — paste the job description below to analyze". State B (no score, JD saved): same compact card, primary-tinted text "Tap Refresh Score to analyze". State C (score exists): existing ring layout plus a Refresh IconButton (Icons.Filled.Refresh, 20dp) in the top-right corner of the card, and an "Analyzed [date]" label using analysisDate from the job — tapping Refresh calls viewModel.analyzeFromPaste(jobDescription), disabled and shows a snackbar "Add a job description first" when jobDescription is blank. Inline AUTH/RATE_LIMIT error text stays inside State C.
+
+16.5 — Change the three ExpandableSection initial states (pros, cons, missing skills) from expanded=false to expanded=true. No other changes to that composable.
+
+16.6 — In JobDescriptionSection: remove the Screenshot tab — JOB_DESCRIPTION_TABS becomes listOf("Paste Text", "Paste URL") only. Pre-populate the Paste Text OutlinedTextField with the saved jobDescription value on first composition. Change the analyze button label dynamically: "Analyze Fit" when job.fitScore == null, "Refresh Score" when a score already exists. Add a "Saved" Text badge (labelSmall, primary color) next to the "Job Description & Score" card title when jobDescription.isNotBlank(). Remove all Screenshot-related imports, state, and the imagePickerLauncher from JobDetailScreen if it is no longer used elsewhere.
+
+16.7 — Wrap all editable fields (Notes, Location, Salary Range, Applied Date, Interview Date) in a single Card with SectionHeader("Details"). Inside: Notes OutlinedTextField (minLines=2, maxLines=5), then Location + Salary in a Column(spacedBy 8dp), then a date Row with Applied and Interview side by side (weight 1f each) — EXCEPT when status is INTERVIEWING or ASSESSMENT, in which case Interview Date is rendered full-width above Applied Date with a CalendarMonth icon and primaryContainer background. Move the Save Changes Button inside this card directly below the dates. Remove the Save Changes button from the main column.
+
+16.8 — Add analysisDate: Long? = null to JobApplication domain model and a matching nullable Long column to JobApplicationEntity. Update the mapper in both directions. Write MIGRATION_X_Y (ALTER TABLE job_applications ADD COLUMN analysisDate INTEGER) — check the current DB version and increment by 1. Register the migration in DatabaseModule. Set analysisDate = System.currentTimeMillis() in JobDetailViewModel when analyzeFromPaste or analyzeFromUrl completes successfully. Follow room-sqlcipher-migrations skill exactly.
+
+16.9 — In LinkedEmailsSection replace the raw threadId string in each SuggestionChip label with "Email thread ${index + 1}". Set the raw threadId as the composable's contentDescription via Modifier.semantics.
+
+16.10 — Keep company name in the TopAppBar title for navigation context, but reduce the in-content company name text style from headlineMedium to titleLarge so it no longer duplicates the AppBar at the same visual weight.
+
+After all files are written, run ./gradlew testDebugUnitTest, then build and install with ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk, and confirm all Phase 16 MVP Checkpoints in execution.md are green before stopping. Do not introduce any regressions — all Phase 1–15 checkpoints must still pass.
+```
+
 ## Phase 14 — Redesign ApplicationStatus Lifecycle
 ```
 Read .claude/skills/room-sqlcipher-migrations/SKILL.md and .claude/skills/android-hilt-patterns/SKILL.md first. Then read execution.md Phase 14 in full (sections 14.1–14.7) before writing a single line of code. Implement each section in order:

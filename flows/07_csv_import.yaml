@@ -1,0 +1,70 @@
+appId: com.jobassistant
+---
+# Scene 07 — CSV Import (~45 seconds)
+# Shows: AI-powered column mapping, preview with StatusChips + dates, batch import.
+# Pre-condition: sample_jobs.csv must be pushed to the device before this flow runs.
+# Push command: adb push sample_jobs.csv /sdcard/Download/sample_jobs.csv
+
+- launchApp:
+    appId: com.jobassistant
+- evalScript: sleep(1000)
+
+# Navigate to Profile → Data section (requires multiple scrolls)
+- tapOn: "Profile"
+- evalScript: sleep(800)
+- scroll
+- evalScript: sleep(600)
+- scroll
+- evalScript: sleep(600)
+- scroll
+- evalScript: sleep(600)
+
+# Tap Import from CSV
+- tapOn:
+    "Import from CSV"
+- evalScript: sleep(800)
+
+# Idle state — tap Choose CSV File
+- tapOn:
+    "Choose CSV File"
+- evalScript: sleep(1000)
+
+# File picker opens — tap sample_jobs.csv in Downloads
+- tapOn: "sample_jobs.csv"
+- evalScript: sleep(1000)
+
+# Reading file + Mapping columns with AI
+- assertVisible: "Mapping columns with AI"
+- evalScript: sleep(7000)
+
+# Preview screen
+- assertVisible: "Found"
+- evalScript: sleep(1000)
+
+# Expand the column mapping card
+- tapOn: "Detected Column Mapping"
+- evalScript: sleep(1200)
+- tapOn: "Detected Column Mapping"
+- evalScript: sleep(600)
+
+# Scroll through the job preview list
+- scroll
+- evalScript: sleep(800)
+- swipe:
+    direction: UP
+- evalScript: sleep(600)
+
+# Import
+- tapOn:
+    "Import"
+- evalScript: sleep(1500)
+
+# Done screen
+- assertVisible: "Import complete"
+- evalScript: sleep(1000)
+
+# View Dashboard — new jobs visible
+- tapOn:
+    "View Dashboard"
+- evalScript: sleep(1200)
+- assertVisible: "Netflix"

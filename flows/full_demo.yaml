@@ -1,0 +1,65 @@
+appId: com.jobassistant
+---
+# Full Demo — Job Assistant
+#
+# Pre-conditions (run ONCE before this flow):
+#   1. maestro test flows/00_setup.yaml          ← seeds all data
+#   2. adb push sample_jobs.csv /sdcard/Download/ ← for the CSV import scene
+#
+# Record with video:
+#   maestro test flows/full_demo.yaml --video
+#
+# Estimated runtime: ~4 minutes
+
+# Scene 01: Onboarding — first-time user experience
+- runFlow: 01_onboarding.yaml
+
+# Brief pause between scenes
+- evalScript: sleep(1000)
+
+# Seed data (inline — after onboarding completes we're logged in)
+- tapOn: "Profile"
+- evalScript: sleep(1000)
+- scroll
+- evalScript: sleep(600)
+- scroll
+- evalScript: sleep(600)
+- scroll
+- evalScript: sleep(600)
+- tapOn: "Seed Test Data"
+- evalScript: sleep(12000)
+- tapOn: "Dashboard"
+- evalScript: sleep(1200)
+
+# Scene 02: Add Job — track a new opportunity
+- runFlow: 02_add_job.yaml
+
+- evalScript: sleep(800)
+
+# Scene 03: Quick Evaluate — score before saving
+- runFlow: 03_quick_evaluate.yaml
+
+- evalScript: sleep(800)
+
+# Scene 04: Job Detail — analyze fit + change status
+- runFlow: 04_job_detail.yaml
+
+- evalScript: sleep(800)
+
+# Scene 05: Dashboard — Kanban, List view, filters
+- runFlow: 05_dashboard.yaml
+
+- evalScript: sleep(800)
+
+# Scene 06: Insights — Career Profile, AI Coach, Applied Jobs
+- runFlow: 06_insights.yaml
+
+- evalScript: sleep(800)
+
+# Scene 07: CSV Import — AI column mapping
+- runFlow: 07_csv_import.yaml
+
+- evalScript: sleep(800)
+
+# Scene 08: Theme switcher — visual wow
+- runFlow: 08_theme.yaml

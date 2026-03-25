@@ -3267,6 +3267,299 @@ if (resumeEmpty) {
 
 ---
 
+## Phase 16 — Job Detail Screen Redesign
+
+> **MVP goal:** The Job Detail screen is decluttered, scannable above the fold, and gives the user clear control over the fit score lifecycle. Every element earns its place. The screen renders identically to all prior phases for data — only the presentation layer changes.
+
+### Background & Motivation
+
+A screenshot audit of the live screen revealed the following structural problems (captured 2026-03-25):
+
+- Company name duplicated in TopAppBar title and content heading
+- Fit Score card occupies ~200dp to display a single "?" when no score exists
+- No way to re-run fit analysis after a resume update — score goes silently stale
+- No timestamp on an existing score (user cannot tell if it is fresh or weeks old)
+- Pros / Cons / Missing Skills default to collapsed — the most useful AI output is hidden
+- `BottomAppBar` exists solely for a single left-aligned red delete icon — looks unintentional
+- Delete is a destructive action but permanently visible at all times
+- Status selector is a full-width `OutlinedButton` — visually reads as a primary CTA
+- Location, salary, applied date are below the fold — metadata not visible without scrolling
+- Job Description tab row includes a "Screenshot" tab that belongs on the Evaluate screen, not here
+- If a job description was previously saved it does not pre-populate the input field
+- All editable fields (Notes, Location, Salary, Dates) are stacked with no grouping — feels like a raw database form
+- "Save Changes" button is at the very bottom of a long scroll
+
+---
+
+### 16.1 Remove the BottomAppBar — Move Delete to Overflow Menu
+
+Remove the entire `bottomBar` parameter from `Scaffold`. The `BottomAppBar` + delete icon is replaced by a three-dot overflow `IconButton` in the `TopAppBar` actions slot.
+
+```kotlin
+TopAppBar(
+    title = { Text(uiState.job?.companyName ?: "Job Detail") },
+    navigationIcon = {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+    },
+    actions = {
+        Box {
+            var menuExpanded by remember { mutableStateOf(false) }
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error)
+                    },
+                    onClick = { menuExpanded = false; showDeleteDialog = true }
+                )
+            }
+        }
+    }
+)
+```
+
+The delete confirmation `AlertDialog` remains unchanged.
+
+---
+
+### 16.2 Redesign the Header
+
+Replace the plain `Column` header with a `Row` that includes a `CompanyAvatar` (already used on the Dashboard card), followed by company name + role title + metadata chips. Remove the redundant company name from the `TopAppBar` title — it can remain there as context but the content heading no longer needs to repeat it at `headlineMedium`.
+
+**Layout:**
+```
+[ Avatar 48dp ]  Monzo
+                 Senior Android Engineer
+                 📍 London   £85k–£110k
+                 [ Expired chip — conditional ]
+```
+
+- `CompanyAvatar` size `48.dp` left of text column
+- Company name: `titleLarge` + `fontWeight = Bold` (down from `headlineMedium` — reduces visual noise)
+- Role title: `bodyLarge`, `onSurfaceVariant`
+- Location + salary rendered as a single `Row` with `Icon` + `bodySmall` text for each, separated by a `·` divider. Only render if non-null/non-blank.
+- "Posting may be expired" `SuggestionChip` stays, below the metadata row
+
+This brings the most important facts visible above the fold without scrolling.
+
+---
+
+### 16.3 Status Selector — Replace OutlinedButton with a Chip Row
+
+The full-width `OutlinedButton` dropdown is replaced by a horizontally scrollable row of `FilterChip`s, one per status. The selected chip uses `statusContainerColor()` and `statusLabelColor()` from the existing `StatusChip.kt` utilities. Non-selected chips use the default surface colors.
+
+```kotlin
+LazyRow(
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    contentPadding = PaddingValues(horizontal = 0.dp)
+) {
+    items(ALL_STATUSES) { s ->
+        FilterChip(
+            selected = s == status,
+            onClick = { viewModel.status.value = s },
+            label = { Text(s.displayName(), style = MaterialTheme.typography.labelSmall) },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = statusContainerColor(s),
+                selectedLabelColor = statusLabelColor(s)
+            )
+        )
+    }
+}
+```
+
+Benefits: the current stage is visible at a glance as a colored chip; changing status is one tap with no dropdown overlay; all statuses are scannable horizontally.
+
+---
+
+### 16.4 Fit Score Card — Three States
+
+The card now has three distinct states instead of one undifferentiated layout.
+
+**State A — No score, no job description saved**
+
+Compact prompt card (~80dp tall). No ring rendered.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ○ No fit score yet                                  │
+│    Paste the job description below to analyze        │
+└─────────────────────────────────────────────────────┘
+```
+- Container: `surfaceVariant`
+- Icon: `Icons.Outlined.Analytics`, `onSurfaceVariant`
+- Body: `bodySmall`, `onSurfaceVariant`
+
+**State B — No score, but a job description IS saved**
+
+Same compact card but the prompt reads "Tap Refresh Score below to analyze" with a teal/primary tint to signal action is ready.
+
+**State C — Score exists**
+
+Full card with ring, score number, and a `Refresh` icon button in the top-right corner.
+
+```
+┌──────────────────────────────────────────────────────┐
+│  [ FitScoreRing 96dp ]          Fit Score   [↻ icon] │
+│                                 Analyzed Mar 12       │
+└──────────────────────────────────────────────────────┘
+```
+
+- `↻` is `Icons.Filled.Refresh`, sized `20.dp`, `onSurfaceVariant` tint
+- Tapping it calls `viewModel.analyzeFromPaste(jobDescription)` — only enabled when `jobDescription.isNotBlank()`; if blank, shows a tooltip/snackbar "Add a job description first"
+- Date: format as `"Analyzed MMM d"` using the `lastSeenDate` field already on `JobApplication` (repurposed or a new `analysisDate` field — see 16.8)
+
+The `inlineError` block (AUTH / RATE_LIMIT) stays inside State C, below the ring.
+
+---
+
+### 16.5 Fit Analysis Results — Default Expanded
+
+The three `ExpandableSection` composables (Pros, Cons, Missing Skills) change their initial `expanded` state:
+
+```kotlin
+var prosExpanded by remember { mutableStateOf(true) }
+var consExpanded by remember { mutableStateOf(true) }
+var missingExpanded by remember { mutableStateOf(true) }
+```
+
+They are only shown when `analysis != null` (unchanged). The expand/collapse toggle remains so the user can hide them.
+
+---
+
+### 16.6 Job Description Input — Simplified
+
+**Changes:**
+1. Remove the "Screenshot" tab entirely from `JOB_DESCRIPTION_TABS`. The tab list becomes `listOf("Paste Text", "Paste URL")` only. Screenshot OCR belongs on the Evaluate screen; it is not a re-analysis workflow on a tracked job.
+2. Pre-populate the `Paste Text` field: the `jobDescription` value from the ViewModel is passed into the `OutlinedTextField` on initial composition. If the user previously saved a JD, it appears immediately — no blank field surprise.
+3. Rename the button contextually:
+   - If `job.fitScore == null` → label `"Analyze Fit"`
+   - If `job.fitScore != null` → label `"Refresh Score"`
+4. Rename the card title from `"Job Description"` to `"Job Description & Score"` to make the card's dual purpose explicit.
+5. Show a `Text("Saved", color = primary, style = labelSmall)` badge next to the card title when `jobDescription.isNotBlank()`, confirming the JD is persisted.
+
+---
+
+### 16.7 Details Card — Group All Editable Fields
+
+Replace the five loose `OutlinedTextField`s and two `DatePickerField`s stacked in the main column with a single `Card` titled `"Details"`.
+
+**Inside the card:**
+
+```
+DETAILS
+─────────────────────
+Notes               [multiline field]
+─────────────────────
+Location            [single-line field]
+Salary Range        [single-line field]
+─────────────────────
+Applied     [date button]
+Interview   [date button]   ← prominent if status == INTERVIEWING or ASSESSMENT
+─────────────────────
+[  Save Changes  ]
+```
+
+- Section uses `SectionHeader` (existing component) for the card title
+- Notes gets `minLines = 2, maxLines = 5`
+- Location and Salary are in a `Column` with `Arrangement.spacedBy(8.dp)`
+- Date row: `Row` with two `OutlinedButton`s side by side (`Modifier.weight(1f)` each)
+- **Contextual interview date prominence:** when `status` is `INTERVIEWING` or `ASSESSMENT`, the Interview Date button is rendered full-width above the Applied Date, with a `CalendarMonth` icon and `primaryContainer` background to draw the eye
+- `Save Changes` button is inside the Details card, directly below the last field — no more scrolling past everything to save
+
+---
+
+### 16.8 Score Timestamp — `analysisDate` Field
+
+To display "Analyzed Mar 12" on the score card, add `analysisDate: Long?` to `JobApplication` domain model and `JobApplicationEntity`.
+
+- Set to `System.currentTimeMillis()` in `JobDetailViewModel` when `analyzeFromPaste` / `analyzeFromUrl` completes successfully
+- Display using `SimpleDateFormat("MMM d", Locale.getDefault())`
+- **Room migration required:** increment DB version, add `ALTER TABLE job_applications ADD COLUMN analysisDate INTEGER` migration
+
+Follow the `room-sqlcipher-migrations` skill exactly for the migration.
+
+---
+
+### 16.9 Linked Emails Section
+
+Minor improvement: replace the raw `threadId` string in each `SuggestionChip` with a truncated, human-readable label. Thread IDs are opaque hex strings — display `"Email thread ${index + 1}"` instead, with the raw ID as a `contentDescription` for accessibility.
+
+```kotlin
+threadIds.forEachIndexed { index, threadId ->
+    SuggestionChip(
+        onClick = {},
+        label = { Text("Email thread ${index + 1}") },
+        modifier = Modifier.semantics { contentDescription = threadId }
+    )
+}
+```
+
+---
+
+### 16.10 TopAppBar Title
+
+Now that the header `Column` shows the company name prominently, the TopAppBar title can be shortened to the role title only (or kept as company name — either is acceptable). The key constraint is: the content area must not repeat exactly what the AppBar title says at the same visual weight.
+
+Recommended: keep `companyName` in the AppBar (nav context), reduce content heading to `titleLarge` (from `headlineMedium`).
+
+---
+
+### Phase 16 File Changes
+
+| File | Change |
+|---|---|
+| `JobDetailScreen.kt` | Full redesign per 16.1–16.7, 16.9–16.10 |
+| `domain/model/JobApplication.kt` | Add `analysisDate: Long? = null` |
+| `data/db/entity/JobApplicationEntity.kt` | Add `analysisDate: Long?` column |
+| `data/db/mapper/JobApplicationMapper.kt` | Map `analysisDate` in both directions |
+| `data/db/AppDatabase.kt` | Increment version, add migration |
+| `ui/screens/detail/JobDetailViewModel.kt` | Set `analysisDate` on successful analysis |
+
+---
+
+### Phase 16 Testing Requirements
+
+**Unit tests** (`test/`):
+
+- `JobDetailViewModelTest`:
+  - After successful `analyzeFromPaste`, `uiState.job.analysisDate` is non-null and approximately `System.currentTimeMillis()`
+  - Refresh button is disabled (or triggers snackbar) when `jobDescription` is blank
+  - Status change via chip updates `viewModel.status` StateFlow
+
+**Manual checklist:**
+- [ ] BottomAppBar is gone; delete is accessible via three-dot menu only
+- [ ] Header shows `CompanyAvatar` + company + role + location/salary metadata
+- [ ] All metadata visible without scrolling on a standard 6" screen
+- [ ] Status chips scroll horizontally; selected chip shows correct status color
+- [ ] Fit score card shows compact prompt when no score exists
+- [ ] "Refresh" icon appears on score card when score exists; disabled when no JD saved
+- [ ] Timestamp reads "Analyzed [date]" after a successful analysis
+- [ ] Pros / Cons / Missing Skills are expanded by default after analysis
+- [ ] Screenshot tab is gone from Job Description section
+- [ ] Previously saved JD pre-fills the paste text field on open
+- [ ] Button label reads "Refresh Score" when score already exists
+- [ ] All editable fields are inside the Details card
+- [ ] Interview date is full-width and prominent when status is INTERVIEWING or ASSESSMENT
+- [ ] Save Changes button is inside the Details card, not at the bottom of the screen
+- [ ] Room migration runs cleanly on a device with existing data (no crash, no data loss)
+- [ ] All Phase 1–15 checkpoints still pass
+
+**Run after completing this phase:**
+```
+./gradlew testDebugUnitTest
+./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+---
+
 ## Cross-Cutting Rules (apply in every phase)
 
 1. **Never log sensitive data:** `resumeText`, email bodies, OAuth tokens, or API keys must never appear in `Log.*` calls.

@@ -160,7 +160,8 @@ class JobDetailViewModel @Inject constructor(
                 val job = _uiState.value.job ?: return
                 val updatedJob = job.copy(
                     fitScore = result.data.score,
-                    jobDescription = text
+                    jobDescription = text,
+                    analysisDate = System.currentTimeMillis()
                 )
                 jobApplicationRepository.save(updatedJob)
                 _uiState.value = _uiState.value.copy(
@@ -196,7 +197,8 @@ class JobDetailViewModel @Inject constructor(
                 interviewDate = interviewDate.value,
                 status = status.value,
                 fitScore = _uiState.value.fitAnalysis?.score ?: job.fitScore,
-                jobDescription = jobDescription.value
+                jobDescription = jobDescription.value,
+                analysisDate = job.analysisDate
             )
             jobApplicationRepository.save(updated)
             _uiState.value = _uiState.value.copy(job = updated, isSaving = false, saved = true)

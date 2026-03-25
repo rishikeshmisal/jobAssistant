@@ -14,4 +14,7 @@ interface CareerInsightsDao {
 
     @Upsert
     suspend fun upsert(entity: CareerInsightsEntity)
+
+    @Query("DELETE FROM career_insights")
+    suspend fun deleteAll()
 }

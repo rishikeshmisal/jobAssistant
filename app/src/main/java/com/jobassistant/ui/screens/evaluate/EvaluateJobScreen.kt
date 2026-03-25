@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -234,7 +235,7 @@ private fun InputSection(
                     Button(
                         onClick = { onAnalyzePaste(pasteText) },
                         enabled = pasteText.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().testTag("check_fit_button")
                     ) {
                         Text("Check Fit")
                     }
@@ -383,13 +384,13 @@ private fun ResultSection(
                 )
                 Button(
                     onClick = { onSaveJob(companyName, roleTitle) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("save_and_track_button")
                 ) {
                     Text("Save & Track")
                 }
                 TextButton(
                     onClick = onReset,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().testTag("start_over_button")
                 ) {
                     Text("Start Over")
                 }

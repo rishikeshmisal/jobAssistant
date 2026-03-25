@@ -1,0 +1,33 @@
+appId: com.jobassistant
+---
+# Scene 04 - Job Detail: score ring (State C) + status chip interaction
+# Pre-condition: seeded data present, app on Dashboard.
+# Shows: CompanyAvatar header, fit score ring with Refresh button,
+#        horizontal FilterChip status row, Details card with Save Changes.
+
+- evalScript: sleep(500)
+- tapOn: "Dashboard"
+- evalScript: sleep(1000)
+
+# Switch to List view to access any job easily
+- tapOn: "List view"
+- evalScript: sleep(1000)
+
+# Tap Klarna — has score 85, status Accepted
+- tapOn: "Klarna"
+- evalScript: sleep(1200)
+
+# State C score card is now visible: ring + Fit Score label + Refresh button
+- assertVisible: "Fit Score"
+- evalScript: sleep(800)
+
+# Status chip row — tap "Interviewing" to demonstrate chip selection
+# "Interviewing" is visible in the initial row without any scroll
+- tapOn: "Interviewing"
+- evalScript: sleep(600)
+
+# Back to Dashboard
+- tapOn: "Back"
+- evalScript: sleep(1000)
+- tapOn: "Kanban view"
+- evalScript: sleep(800)

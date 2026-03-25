@@ -1,0 +1,39 @@
+appId: com.jobassistant
+---
+# Scene 01 — Onboarding (~25 seconds)
+# Shows: step dot animation, smooth screen transitions, polished first-run experience.
+# Pre-condition: app data has been cleared (clearState: true in 00_setup.yaml).
+
+- launchApp:
+    clearState: true
+- evalScript: sleep(1500)
+
+# Step 1: Welcome — enter name
+- tapOn:
+    "Your name"
+- inputText:
+    text: "Alex Johnson"
+- evalScript: sleep(600)
+- tapOn: "Next"
+- evalScript: sleep(800)
+
+# Step 2: Career goal
+- tapOn:
+    "Career goal"
+- inputText:
+    text: "Senior Android Engineer targeting fintech product companies."
+- evalScript: sleep(600)
+- tapOn: "Next"
+- evalScript: sleep(800)
+
+# Step 3: Resume — skip for demo (shows the skip path)
+- tapOn:
+    "Skip for now"
+- evalScript: sleep(800)
+
+# Step 4: Get Started
+- tapOn: "Get Started"
+- evalScript: sleep(1500)
+
+# Dashboard is now visible
+- assertVisible: "Dashboard"

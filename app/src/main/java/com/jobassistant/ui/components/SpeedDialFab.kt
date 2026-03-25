@@ -26,6 +26,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -54,18 +56,23 @@ fun SpeedDialFab(
                 SpeedDialItem(
                     label = "Evaluate Fit",
                     icon = Icons.Filled.Analytics,
-                    onClick = onEvaluateFit
+                    onClick = onEvaluateFit,
+                    testTag = "evaluate_fit_fab"
                 )
                 SpeedDialItem(
                     label = "Track Job",
                     icon = Icons.Filled.Add,
-                    onClick = onTrackJob
+                    onClick = onTrackJob,
+                    testTag = "track_job_fab"
                 )
             }
         }
 
         // Main FAB — always visible
-        FloatingActionButton(onClick = onToggle) {
+        FloatingActionButton(
+            onClick = onToggle,
+            modifier = Modifier.testTag("speed_dial_main_fab")
+        ) {
             Icon(
                 imageVector = if (expanded) Icons.Filled.Close else Icons.Filled.Add,
                 contentDescription = if (expanded) "Close" else "Add"
@@ -78,7 +85,8 @@ fun SpeedDialFab(
 private fun SpeedDialItem(
     label: String,
     icon: ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    testTag: String = ""
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically
@@ -86,7 +94,8 @@ private fun SpeedDialItem(
         Surface(
             shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 4.dp
+            shadowElevation = 4.dp,
+            modifier = Modifier.clearAndSetSemantics {}   // hide label from accessibility tree
         ) {
             Text(
                 text = label,
@@ -95,7 +104,10 @@ private fun SpeedDialItem(
             )
         }
         Spacer(Modifier.width(12.dp))
-        SmallFloatingActionButton(onClick = onClick) {
+        SmallFloatingActionButton(
+            onClick = onClick,
+            modifier = if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier
+        ) {
             Icon(icon, contentDescription = label)
         }
     }

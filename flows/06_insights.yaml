@@ -1,0 +1,60 @@
+appId: com.jobassistant
+---
+# Scene 06 — Insights: all 3 tabs (~35 seconds)
+# Shows: Career Profile with real data, AI Coach with gaps + actions, Applied Jobs stats.
+# Pre-condition: app on Dashboard with seeded data including CareerInsights.
+
+# Bring app to foreground on the Dashboard — scene 05 may leave the app on Job Detail
+# (which hides the bottom nav). launchApp without clearState preserves all seeded data.
+- launchApp:
+    appId: com.jobassistant
+- evalScript: sleep(1500)
+
+# Navigate to Insights
+- tapOn: "Insights"
+- evalScript: sleep(1000)
+
+# Tab 0: Career Profile — show avatar, keywords, salary
+- assertVisible: "Alex Johnson"
+- scroll
+- evalScript: sleep(800)
+- assertVisible: "CAREER INTERESTS"
+- scroll
+- evalScript: sleep(600)
+- swipe:
+    direction: UP
+- evalScript: sleep(600)
+
+# Tab 1: AI Coach — show identified gaps and recommended actions
+- tapOn: "AI Coach"
+- evalScript: sleep(800)
+- assertVisible: "IDENTIFIED GAPS"
+- scroll
+- evalScript: sleep(600)
+- scroll
+- evalScript: sleep(600)
+- scroll
+- evalScript: sleep(600)
+- swipe:
+    direction: UP
+- evalScript: sleep(600)
+
+# Tab 2: Applied Jobs — show 6 stat cards and funnel
+- tapOn: "Applied Jobs"
+- evalScript: sleep(800)
+- assertVisible: "Applied"
+- assertVisible: "Interviews"
+- scroll
+- evalScript: sleep(800)
+- assertVisible: "Conversion Rates"
+- scroll
+- evalScript: sleep(600)
+- assertVisible: "Top Companies"
+- evalScript: sleep(800)
+- swipe:
+    direction: UP
+- evalScript: sleep(600)
+
+# Back to Dashboard
+- tapOn: "Dashboard"
+- evalScript: sleep(800)

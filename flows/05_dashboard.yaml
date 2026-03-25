@@ -1,0 +1,27 @@
+appId: com.jobassistant
+---
+# Scene 05 - Dashboard: Kanban scroll + status change
+
+- evalScript: sleep(500)
+
+# Scroll Kanban right to reveal pipeline stages
+- swipe:
+    direction: LEFT
+- evalScript: sleep(800)
+- swipe:
+    direction: LEFT
+- evalScript: sleep(800)
+
+# Scroll back
+- swipe:
+    direction: RIGHT
+- evalScript: sleep(600)
+- swipe:
+    direction: RIGHT
+- evalScript: sleep(600)
+
+# Long-press Monzo to show status change sheet
+- longPressOn: "Monzo"
+- evalScript: sleep(800)
+- tapOn: "Offer Received"
+- evalScript: sleep(1500)

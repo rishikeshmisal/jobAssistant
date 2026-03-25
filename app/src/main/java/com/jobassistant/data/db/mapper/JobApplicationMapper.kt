@@ -18,7 +18,8 @@ fun JobApplicationEntity.toDomain(): JobApplication = JobApplication(
     notes = notes,
     linkedEmailThreadIds = linkedEmailThreadIds,
     lastSeenDate = lastSeenDate,
-    jobDescription = jobDescription
+    jobDescription = jobDescription,
+    analysisDate = analysisDate
 )
 
 fun JobApplication.toEntity(): JobApplicationEntity = JobApplicationEntity(
@@ -35,5 +36,6 @@ fun JobApplication.toEntity(): JobApplicationEntity = JobApplicationEntity(
     notes = notes,
     linkedEmailThreadIds = linkedEmailThreadIds,
     lastSeenDate = lastSeenDate,
-    jobDescription = jobDescription
+    jobDescription = jobDescription,
+    analysisDate = analysisDate
 )

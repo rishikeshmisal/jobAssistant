@@ -1,0 +1,55 @@
+appId: com.jobassistant
+---
+# Setup flow — run ONCE before recording the demo.
+# Seeds 32 realistic jobs + user profile + AI insights via the in-app debug button.
+# Do NOT include this file in full_demo.yaml.
+
+# Launch the app with fresh state
+- launchApp:
+    clearState: true
+- evalScript: sleep(12000)
+
+# Wait until onboarding is ready
+- assertVisible: "Welcome to Job Assistant"
+- evalScript: sleep(500)
+
+# Step 1: Enter name — tap placeholder text visible on screen
+- tapOn: "Your name"
+- inputText:
+    text: "Alex Johnson"
+- tapOn: "Next"
+- evalScript: sleep(1200)
+
+# Step 2: Career goal
+- tapOn: "Career goal"
+- inputText:
+    text: "Senior Android Engineer targeting fintech and productivity companies."
+- tapOn: "Next"
+- evalScript: sleep(1200)
+
+# Step 3: Skip resume
+- tapOn: "Skip for now"
+- evalScript: sleep(1000)
+
+# Step 4: Get Started
+- tapOn: "Get Started"
+- evalScript: sleep(1500)
+
+# Navigate to Profile
+- tapOn: "Profile"
+- evalScript: sleep(1000)
+
+# Scroll down to reach the Data section
+- scroll
+- evalScript: sleep(800)
+- scroll
+- evalScript: sleep(600)
+
+# Tap the red "Seed Test Data" button
+- tapOn: "Seed Test Data"
+- evalScript: sleep(12000)
+
+# Verify on Dashboard
+- tapOn: "Dashboard"
+- evalScript: sleep(1500)
+- assertVisible: "Dashboard"

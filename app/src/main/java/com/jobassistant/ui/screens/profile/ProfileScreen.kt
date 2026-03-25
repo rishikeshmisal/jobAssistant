@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -48,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -172,7 +176,8 @@ fun ProfileScreen(
                                     if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                                     else Modifier
                                 )
-                                .clickable { viewModel.setTheme(theme) },
+                                .clickable { viewModel.setTheme(theme) }
+                                .semantics { contentDescription = theme.name },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected) {
@@ -411,6 +416,9 @@ fun ProfileScreen(
                 ) {
                     Text("Import from CSV")
                 }
+                if (com.jobassistant.BuildConfig.DEBUG) {
+                    DebugSeedSection()
+                }
             }
         }
 
@@ -548,5 +556,43 @@ fun ProfileScreen(
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun DebugSeedSection(
+    debugVm: com.jobassistant.debug.DebugSeedViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+) {
+    val seedState by debugVm.seedState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+
+    LaunchedEffect(seedState) {
+        if (seedState is com.jobassistant.debug.SeedState.Done) {
+            val count = (seedState as com.jobassistant.debug.SeedState.Done).count
+            snackbarHostState.showSnackbar("Test data loaded — $count jobs seeded")
+            debugVm.resetSeedState()
+        }
+    }
+
+    OutlinedButton(
+        onClick = { debugVm.seed() },
+        enabled = seedState !is com.jobassistant.debug.SeedState.Seeding,
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = MaterialTheme.colorScheme.error
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("seed_test_data_button")
+    ) {
+        if (seedState is com.jobassistant.debug.SeedState.Seeding) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text("Seed Test Data")
     }
 }

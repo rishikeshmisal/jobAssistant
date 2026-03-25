@@ -1,0 +1,27 @@
+appId: com.jobassistant
+---
+# Scene 03 - Quick Evaluate: show the headline feature
+# Shows SpeedDial, Evaluate Fit screen, description input, analysis spinner.
+# No waiting for API result — spinner itself demonstrates the AI feature.
+
+- evalScript: sleep(500)
+
+# Open SpeedDial -> Evaluate Fit
+- tapOn: "Add"
+- evalScript: sleep(600)
+- tapOn: "Evaluate Fit"
+- evalScript: sleep(800)
+
+# Paste a job description
+- tapOn: "Paste job description"
+- inputText:
+    text: "Senior Android Engineer - Netflix. Kotlin, Compose, Hilt, Room required."
+- evalScript: sleep(800)
+
+# Tap Check Fit - show the spinner for a few seconds then move on
+- tapOn: "Check Fit"
+- evalScript: sleep(6000)
+
+# Navigate back (shows the feature is non-blocking)
+- tapOn: "Back"
+- evalScript: sleep(1000)
